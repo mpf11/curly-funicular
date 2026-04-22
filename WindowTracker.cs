@@ -30,6 +30,9 @@ public sealed class WindowTracker
     // Handle -> slot index, so we keep assignments stable across refreshes.
     private readonly Dictionary<IntPtr, int> _handleToSlot = new();
 
+    // Windows that didn't fit in the wheel (Z-order/MRU sorted).
+    private readonly List<TrackedWindow> _overflow = new();
+
     private readonly IntPtr _selfWindow;
 
     public WindowTracker(IntPtr selfWindow)
@@ -38,6 +41,7 @@ public sealed class WindowTracker
     }
 
     public IReadOnlyList<TrackedWindow?> Slots => _slots;
+    public IReadOnlyList<TrackedWindow> Overflow => _overflow;
 
     /// <summary>
     /// Enumerates current top-level windows, prunes closed ones, and fills empty slots
@@ -71,17 +75,23 @@ public sealed class WindowTracker
             }
         }
 
-        // 3. Add new windows into the lowest free slot. Z-order already comes MRU-first from EnumWindows.
+        // 3. Add new windows into the lowest free slot; overflow the rest. Z-order is MRU-first.
+        _overflow.Clear();
         foreach (var w in live)
         {
             if (_handleToSlot.ContainsKey(w.Handle)) continue;
 
             int free = FindFreeSlot();
-            if (free < 0) break;    // wheel full
-
-            w.Slot = free;
-            _slots[free] = w;
-            _handleToSlot[w.Handle] = free;
+            if (free >= 0)
+            {
+                w.Slot = free;
+                _slots[free] = w;
+                _handleToSlot[w.Handle] = free;
+            }
+            else
+            {
+                _overflow.Add(w);
+            }
         }
     }
 
@@ -101,6 +111,39 @@ public sealed class WindowTracker
         (_slots[a], _slots[b]) = (_slots[b], _slots[a]);
         if (_slots[a] is not null) { _slots[a]!.Slot = a; _handleToSlot[_slots[a]!.Handle] = a; }
         if (_slots[b] is not null) { _slots[b]!.Slot = b; _handleToSlot[_slots[b]!.Handle] = b; }
+    }
+
+    /// <summary>Swap a wheel slot with an overflow entry.</summary>
+    public void SwapSlotWithOverflow(int slotIndex, int overflowIndex)
+    {
+        if (slotIndex < 0 || slotIndex >= MaxSlots) return;
+        if (overflowIndex < 0 || overflowIndex >= _overflow.Count) return;
+
+        var slotWindow = _slots[slotIndex];
+        var overflowWindow = _overflow[overflowIndex];
+
+        overflowWindow.Slot = slotIndex;
+        _slots[slotIndex] = overflowWindow;
+        _handleToSlot[overflowWindow.Handle] = slotIndex;
+
+        if (slotWindow is not null)
+        {
+            _handleToSlot.Remove(slotWindow.Handle);
+            slotWindow.Slot = -1;
+            _overflow[overflowIndex] = slotWindow;
+        }
+        else
+        {
+            _overflow.RemoveAt(overflowIndex);
+        }
+    }
+
+    /// <summary>Reorder two overflow entries.</summary>
+    public void SwapOverflowItems(int a, int b)
+    {
+        if (a == b) return;
+        if (a < 0 || a >= _overflow.Count || b < 0 || b >= _overflow.Count) return;
+        (_overflow[a], _overflow[b]) = (_overflow[b], _overflow[a]);
     }
 
     // --- Enumeration ---

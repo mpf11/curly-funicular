@@ -32,6 +32,7 @@ public partial class App : Application
 
         _wheel = new WheelWindow();
         _wheel.OnSlotCommitted += slot => CommitSelection(slot);
+        _wheel.OnOverflowCommitted += CommitWindowDirect;
         // Show once at startup so the HWND exists and the window is always in the compositor.
         // It starts at Opacity=0 with WS_EX_TRANSPARENT so it's invisible and click-through.
         _wheel.Show();
@@ -100,8 +101,11 @@ public partial class App : Application
         Dispatcher.BeginInvoke(() =>
         {
             if (!_isShown) return;
-            int slot = _wheel!.HoverSlot;
-            CommitSelection(slot);
+            var overflowTw = _wheel!.SelectedOverflowWindow;
+            if (overflowTw is not null)
+                CommitWindowDirect(overflowTw);
+            else
+                CommitSelection(_wheel!.HoverSlot);
         });
     }
 
@@ -114,6 +118,15 @@ public partial class App : Application
             _hook!.WheelActive = false;
             _wheel!.Dismiss();
         });
+    }
+
+    private void CommitWindowDirect(TrackedWindow tw)
+    {
+        if (!_isShown) return;
+        _isShown = false;
+        _hook!.WheelActive = false;
+        _wheel!.Dismiss();
+        WindowActivator.Activate(tw.Handle);
     }
 
     private void CommitSelection(int slot)

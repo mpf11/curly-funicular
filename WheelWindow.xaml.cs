@@ -43,10 +43,25 @@ public partial class WheelWindow : Window
     private int _hoverSlot = -1;
     private int _defaultSlot = -1;  // keyboard pre-selection; used when mouse is in hub
     private int _dragStartSlot = -1;
+    private int _dragStartOverflow = -1;
     private Point _dragStartPoint;
     private bool _isDragging;
+    private Border? _dragGhost;
+    private TranslateTransform? _dragGhostTransform;
+
+    // Overflow panel
+    private int _overflowHoverIndex = -1;
+    private readonly List<UIElement> _overflowCanvasChildren = new();
+    private Rect _overflowPanelRect = Rect.Empty;
 
     public int HoverSlot => _hoverSlot >= 0 ? _hoverSlot : _defaultSlot;
+
+    public TrackedWindow? SelectedOverflowWindow =>
+        _overflowHoverIndex >= 0 && _tracker?.Overflow is { } ov && _overflowHoverIndex < ov.Count
+            ? ov[_overflowHoverIndex]
+            : null;
+
+    public event Action<TrackedWindow>? OnOverflowCommitted;
 
     public WheelWindow()
     {
@@ -108,14 +123,17 @@ public partial class WheelWindow : Window
 
         if (monitorChanged)
         {
-            BuildVisuals();
+            BuildVisuals();   // also resets overflow tracking lists
             _cachedMonitor = primary;
             _hasLayout = true;
         }
         else
         {
+            ClearOverflowPanel();
             UpdateContent();
         }
+
+        BuildOverflowPanel();
 
         // Remove click-through so the window can receive mouse input.
         int ex = NativeMethods.GetWindowLongPtr(_hwnd, NativeMethods.GWL_EXSTYLE);
@@ -144,6 +162,19 @@ public partial class WheelWindow : Window
 
         _hoverSlot = -1;
         _defaultSlot = -1;
+
+        if (_isDragging)
+        {
+            _isDragging = false;
+            ReleaseMouseCapture();
+            if (_dragStartSlot >= 0 && _visuals[_dragStartSlot]?.ThumbHost is Border dh)
+            { dh.RenderTransform = null; dh.Opacity = 1.0; }
+            RemoveDragGhost();
+            _dragStartSlot = -1;
+            _dragStartOverflow = -1;
+        }
+
+        ClearOverflowPanel();
 
         // Cancel animation and snap back to opacity 0.
         RootGrid.BeginAnimation(UIElement.OpacityProperty, null);
@@ -183,6 +214,10 @@ public partial class WheelWindow : Window
     private void BuildVisuals()
     {
         WheelCanvas.Children.Clear();
+        // Canvas wipe also removed overflow children; reset tracking.
+        _overflowCanvasChildren.Clear();
+        _overflowPanelRect = Rect.Empty;
+        _overflowHoverIndex = -1;
 
         // Draw from back to front: backdrop glow, slice glass fills, dividers, thumbnails, hub, icons, labels.
 
@@ -535,7 +570,6 @@ public partial class WheelWindow : Window
 
         if (_isDragging && _dragStartSlot >= 0)
         {
-            // Offset the start slot's thumb host with the cursor so it feels picked up.
             var host = _visuals[_dragStartSlot]?.ThumbHost;
             if (host is not null)
             {
@@ -544,12 +578,23 @@ public partial class WheelWindow : Window
                 host.RenderTransform = new TranslateTransform(dx, dy);
                 host.Opacity = 0.85;
             }
+            return;
         }
 
-        int slot = PointToSlot(p);
-        if (slot != _hoverSlot)
+        if (_isDragging && _dragStartOverflow >= 0)
         {
-            UpdateHover(slot);
+            UpdateDragGhost(p);
+            return;
+        }
+
+        if (!_overflowPanelRect.IsEmpty && _overflowPanelRect.Contains(p))
+        {
+            if (_hoverSlot >= 0) UpdateHover(-1);
+        }
+        else
+        {
+            int slot = PointToSlot(p);
+            if (slot != _hoverSlot) UpdateHover(slot);
         }
     }
 
@@ -591,10 +636,26 @@ public partial class WheelWindow : Window
     private void OnMouseDown(object sender, MouseButtonEventArgs e)
     {
         var p = e.GetPosition(WheelCanvas);
+
+        // Overflow panel takes priority — its area overlaps wheel angle space.
+        int ovIdx = HitTestOverflowRow(p);
+        if (ovIdx >= 0)
+        {
+            _dragStartOverflow = ovIdx;
+            _dragStartSlot = -1;
+            _dragStartPoint = p;
+            _isDragging = true;
+            if (_tracker?.Overflow.Count > ovIdx)
+                CreateDragGhost(_tracker.Overflow[ovIdx], p);
+            CaptureMouse();
+            return;
+        }
+
         int slot = PointToSlot(p);
         if (slot < 0 || _tracker is null || _tracker.Slots[slot] is null) return;
 
         _dragStartSlot = slot;
+        _dragStartOverflow = -1;
         _dragStartPoint = p;
         _isDragging = true;
         CaptureMouse();
@@ -607,31 +668,58 @@ public partial class WheelWindow : Window
         ReleaseMouseCapture();
 
         var p = e.GetPosition(WheelCanvas);
-        int drop = PointToSlot(p);
-
-        int start = _dragStartSlot;
-        _dragStartSlot = -1;
-
-        // Reset any transform on the lifted thumb.
-        if (start >= 0 && _visuals[start]?.ThumbHost is Border startHost)
-        {
-            startHost.RenderTransform = null;
-            startHost.Opacity = 1.0;
-        }
-
         bool moved = (p - _dragStartPoint).Length > 6;
 
-        if (start >= 0 && drop >= 0 && drop != start && moved && _tracker is not null)
+        if (_dragStartSlot >= 0)
         {
-            // Swap: rearrange slots, rebuild thumbnails in place.
-            _tracker.SwapSlots(start, drop);
-            RebuildSlotContent(start);
-            RebuildSlotContent(drop);
+            int start = _dragStartSlot;
+            _dragStartSlot = -1;
+
+            if (_visuals[start]?.ThumbHost is Border h) { h.RenderTransform = null; h.Opacity = 1.0; }
+
+            if (moved && _tracker is not null)
+            {
+                int dropSlot = PointToSlot(p);
+
+                if (dropSlot >= 0 && dropSlot != start)
+                {
+                    _tracker.SwapSlots(start, dropSlot);
+                    RebuildSlotContent(start);
+                    RebuildSlotContent(dropSlot);
+                }
+            }
+            else if (!moved)
+            {
+                OnSlotCommitted?.Invoke(start);
+            }
         }
-        else if (start >= 0 && !moved)
+        else if (_dragStartOverflow >= 0)
         {
-            // Single click on a slot = switch to it and dismiss (same as release-on-slot).
-            OnSlotCommitted?.Invoke(start);
+            int startOv = _dragStartOverflow;
+            _dragStartOverflow = -1;
+            RemoveDragGhost();
+
+            if (moved && _tracker is not null)
+            {
+                int dropSlot = PointToSlot(p);
+                int dropOv   = HitTestOverflowRow(p);
+
+                if (dropSlot >= 0)
+                {
+                    _tracker.SwapSlotWithOverflow(dropSlot, startOv);
+                    RebuildSlotContent(dropSlot);
+                    RebuildOverflowPanel();
+                }
+                else if (dropOv >= 0 && dropOv != startOv)
+                {
+                    _tracker.SwapOverflowItems(startOv, dropOv);
+                    RebuildOverflowPanel();
+                }
+            }
+            else if (!moved && _tracker?.Overflow.Count > startOv)
+            {
+                OnOverflowCommitted?.Invoke(_tracker.Overflow[startOv]);
+            }
         }
     }
 
@@ -689,6 +777,195 @@ public partial class WheelWindow : Window
             fSourceClientAreaOnly = false
         };
         NativeMethods.DwmUpdateThumbnailProperties(thumb, ref props);
+    }
+
+    // ---- Overflow panel ----
+
+    private int HitTestOverflowRow(Point p)
+    {
+        if (_overflowPanelRect.IsEmpty || !_overflowPanelRect.Contains(p)) return -1;
+        int idx = (int)((p.Y - _overflowPanelRect.Top) / 46);
+        if (_tracker is null || idx < 0 || idx >= _tracker.Overflow.Count) return -1;
+        return idx;
+    }
+
+    private void RebuildOverflowPanel()
+    {
+        ClearOverflowPanel();
+        BuildOverflowPanel();
+    }
+
+    private void CreateDragGhost(TrackedWindow tw, Point p)
+    {
+        var icon = new Image
+        {
+            Width = 22, Height = 22,
+            Source = WindowActivator.GetIconForWindow(tw.Handle, tw.ProcessPath),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(8, 0, 6, 0),
+            IsHitTestVisible = false
+        };
+        var title = new TextBlock
+        {
+            Text = tw.Title,
+            FontFamily = new FontFamily("Segoe UI Variable Display, Segoe UI"),
+            FontSize = 11,
+            FontWeight = FontWeights.Medium,
+            Foreground = new SolidColorBrush(Color.FromArgb(0xCC, 0xFF, 0xFF, 0xFF)),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            MaxWidth = 150,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 8, 0),
+            IsHitTestVisible = false
+        };
+        var sp = new StackPanel { Orientation = Orientation.Horizontal, IsHitTestVisible = false };
+        sp.Children.Add(icon);
+        sp.Children.Add(title);
+        _dragGhost = new Border
+        {
+            Child = sp,
+            Background = new SolidColorBrush(Color.FromArgb(0xCC, 0x12, 0x14, 0x1E)),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(0x66, 0xFF, 0xFF, 0xFF)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(0, 5, 0, 5),
+            IsHitTestVisible = false,
+            Opacity = 0.9
+        };
+        _dragGhostTransform = new TranslateTransform(p.X + 14, p.Y - 18);
+        _dragGhost.RenderTransform = _dragGhostTransform;
+        WheelCanvas.Children.Add(_dragGhost);
+    }
+
+    private void UpdateDragGhost(Point p)
+    {
+        if (_dragGhostTransform is null) return;
+        _dragGhostTransform.X = p.X + 14;
+        _dragGhostTransform.Y = p.Y - 18;
+    }
+
+    private void RemoveDragGhost()
+    {
+        if (_dragGhost is not null)
+        {
+            WheelCanvas.Children.Remove(_dragGhost);
+            _dragGhost = null;
+            _dragGhostTransform = null;
+        }
+    }
+
+    private void ClearOverflowPanel()
+    {
+        foreach (var el in _overflowCanvasChildren)
+            WheelCanvas.Children.Remove(el);
+        _overflowCanvasChildren.Clear();
+        _overflowPanelRect = Rect.Empty;
+        _overflowHoverIndex = -1;
+    }
+
+    private void BuildOverflowPanel()
+    {
+        if (_tracker is null || _tracker.Overflow.Count == 0) return;
+
+        const double rowH = 46;
+        const double panelW = 220;
+        const double gap = 16;
+
+        double panelX = _cx - _outerRadius - gap - panelW;
+        double totalH = _tracker.Overflow.Count * rowH;
+        double panelY = Math.Max(4, Math.Min(_cy - totalH / 2.0, Height - totalH - 4));
+
+        _overflowPanelRect = new Rect(panelX, panelY, panelW, totalH);
+
+        // Glass-style background
+        var bg = new Border
+        {
+            Width = panelW,
+            Height = totalH,
+            CornerRadius = new CornerRadius(12),
+            Background = new SolidColorBrush(Color.FromArgb(0xCC, 0x0E, 0x10, 0x16)),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(0x55, 0xFF, 0xFF, 0xFF)),
+            BorderThickness = new Thickness(1),
+            IsHitTestVisible = false,
+            Effect = new DropShadowEffect { BlurRadius = 28, ShadowDepth = 0, Color = Colors.Black, Opacity = 0.65 }
+        };
+        Canvas.SetLeft(bg, panelX);
+        Canvas.SetTop(bg, panelY);
+        WheelCanvas.Children.Add(bg);
+        _overflowCanvasChildren.Add(bg);
+
+        int count = _tracker.Overflow.Count;
+        for (int i = 0; i < count; i++)
+        {
+            int idx = i;
+            var tw = _tracker.Overflow[i];
+
+            var icon = new Image
+            {
+                Width = 28, Height = 28,
+                Source = WindowActivator.GetIconForWindow(tw.Handle, tw.ProcessPath),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(10, 0, 8, 0),
+                IsHitTestVisible = false
+            };
+
+            var titleText = new TextBlock
+            {
+                Text = tw.Title,
+                FontFamily = new FontFamily("Segoe UI Variable Display, Segoe UI"),
+                FontSize = 12,
+                FontWeight = FontWeights.Medium,
+                Foreground = new SolidColorBrush(Color.FromArgb(0xDD, 0xFF, 0xFF, 0xFF)),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 10, 0),
+                IsHitTestVisible = false
+            };
+
+            var dock = new DockPanel { LastChildFill = true, IsHitTestVisible = false };
+            DockPanel.SetDock(icon, Dock.Left);
+            dock.Children.Add(icon);
+            dock.Children.Add(titleText);
+
+            var rowBg = new SolidColorBrush(Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF));
+            var cr = count == 1 ? new CornerRadius(10)
+                   : i == 0     ? new CornerRadius(10, 10, 2, 2)
+                   : i == count - 1 ? new CornerRadius(2, 2, 10, 10)
+                   : new CornerRadius(2);
+
+            var row = new Border
+            {
+                Width = panelW,
+                Height = rowH,
+                CornerRadius = cr,
+                Background = rowBg,
+                Child = dock,
+                Cursor = Cursors.Hand
+            };
+
+            row.MouseEnter += (_, _) =>
+            {
+                if (_isDragging) return;
+                if (_hoverSlot >= 0) UpdateHover(-1);
+                rowBg.Color = Color.FromArgb(0x28, 0xFF, 0xFF, 0xFF);
+                _overflowHoverIndex = idx;
+            };
+            row.MouseLeave += (_, _) =>
+            {
+                if (_isDragging) return;
+                if (_overflowHoverIndex == idx)
+                {
+                    rowBg.Color = Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF);
+                    _overflowHoverIndex = -1;
+                }
+            };
+            // Click/drag is handled by the window's OnMouseDown/OnMouseUp via HitTestOverflowRow.
+
+            Canvas.SetLeft(row, panelX);
+            Canvas.SetTop(row, panelY + i * rowH);
+            WheelCanvas.Children.Add(row);
+            _overflowCanvasChildren.Add(row);
+        }
     }
 
     // ---- Monitor math ----
