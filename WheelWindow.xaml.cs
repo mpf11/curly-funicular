@@ -123,7 +123,7 @@ public partial class WheelWindow : Window
             ex & ~NativeMethods.WS_EX_TRANSPARENT);
 
         NativeMethods.SetCursorPos((int)primary.cx, (int)primary.cy);
-        AnimateIn();
+        RootGrid.Opacity = 1;
         RegisterThumbnails();
     }
 
@@ -689,22 +689,6 @@ public partial class WheelWindow : Window
             fSourceClientAreaOnly = false
         };
         NativeMethods.DwmUpdateThumbnailProperties(thumb, ref props);
-    }
-
-    // ---- Entry animation ----
-    private void AnimateIn()
-    {
-        // Pure opacity fade — no scale. DWM thumbnails are composited at absolute pixel
-        // coordinates and don't participate in WPF transforms, so a scale animation would
-        // cause thumbnails to drift relative to their WPF slot containers.
-        RootGrid.RenderTransform = null;
-        RootGrid.Opacity = 0;
-
-        RootGrid.BeginAnimation(OpacityProperty,
-            new DoubleAnimation(0.0, 1.0, TimeSpan.FromMilliseconds(120))
-            {
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-            });
     }
 
     // ---- Monitor math ----
