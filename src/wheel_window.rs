@@ -14,7 +14,7 @@ use windows::Win32::Graphics::Direct2D::{
     D2D1CreateFactory, ID2D1Bitmap, ID2D1Brush, ID2D1DCRenderTarget, ID2D1Factory,
     ID2D1RenderTarget, ID2D1StrokeStyle,
     D2D1_ARC_SEGMENT, D2D1_ARC_SIZE_SMALL, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,
-    D2D1_BITMAP_PROPERTIES, D2D1_DRAW_TEXT_OPTIONS_CLIP, D2D1_ELLIPSE,
+    D2D1_BITMAP_PROPERTIES, D2D1_DRAW_TEXT_OPTIONS_CLIP,
     D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_FEATURE_LEVEL_DEFAULT,
     D2D1_RENDER_TARGET_PROPERTIES, D2D1_RENDER_TARGET_TYPE_DEFAULT,
     D2D1_RENDER_TARGET_USAGE_NONE, D2D1_ROUNDED_RECT, D2D1_SWEEP_DIRECTION_CLOCKWISE,
@@ -562,12 +562,6 @@ impl WheelState {
             rt.BeginDraw();
             rt.Clear(Some(&rgba(0.0, 0.0, 0.0, 0.0)));
 
-            // 1. Outer glow halo
-            let glow = rt.CreateSolidColorBrush(&rgba(1.0, 1.0, 1.0, 0.04), None)?;
-            rt.FillEllipse(
-                &D2D1_ELLIPSE { point: pt(cx, cy), radiusX: outer_r + 40.0, radiusY: outer_r + 40.0 },
-                &*glow,
-            );
 
             // 2. Main disc — donut shape (center is transparent).
             let disc = rt.CreateSolidColorBrush(&rgba(0.055, 0.063, 0.086, 0.87), None)?;
@@ -581,7 +575,9 @@ impl WheelState {
                 let opacity = if slots[i].is_some() { 0.33f32 } else { 0.12f32 };
                 let thumb_bg = rt.CreateSolidColorBrush(&rgba(0.04, 0.051, 0.071, opacity), None)?;
                 if let Some(tr) = self.thumb_rects[i] {
-                    let rr = D2D1_ROUNDED_RECT { rect: tr, radiusX: 10.0, radiusY: 10.0 };
+                    // Expand placeholder outward by 2px to give visible gap between hard-cornered thumbnail and rounded border.
+                    let expanded = frect(tr.left - 2.0, tr.top - 2.0, tr.right + 2.0, tr.bottom + 2.0);
+                    let rr = D2D1_ROUNDED_RECT { rect: expanded, radiusX: 10.0, radiusY: 10.0 };
                     rt.FillRoundedRectangle(&rr, &*thumb_bg);
                     rt.DrawRoundedRectangle(&rr, &*thumb_rim, 1.0, None::<&ID2D1StrokeStyle>);
                 }
