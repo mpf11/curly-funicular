@@ -20,10 +20,11 @@ use windows::Win32::Graphics::Direct2D::{
     D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE,
 };
 use windows::Win32::Graphics::DirectWrite::{
-    DWriteCreateFactory, IDWriteFactory, IDWriteTextFormat, DWRITE_FACTORY_TYPE_SHARED,
-    DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT_MEDIUM,
-    DWRITE_MEASURING_MODE_NATURAL, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
-    DWRITE_TEXT_ALIGNMENT_CENTER,
+    DWriteCreateFactory, IDWriteFactory, IDWriteTextFormat,
+    DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+    DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
+    DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_TRIMMING, DWRITE_TRIMMING_GRANULARITY_CHARACTER,
+    DWRITE_WORD_WRAPPING_NO_WRAP,
 };
 use windows::Win32::Graphics::Dwm::{
     DwmRegisterThumbnail, DwmUnregisterThumbnail, DwmUpdateThumbnailProperties,
@@ -52,8 +53,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
     SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_SHOWNOACTIVATE, TPM_RETURNCMD, TPM_RIGHTBUTTON,
     ULW_ALPHA, WINDOW_LONG_PTR_INDEX, WNDCLASSEXW, WM_CONTEXTMENU, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    WM_MOUSEMOVE, WM_NCDESTROY, WM_RBUTTONUP, WS_EX_LAYERED, WS_EX_NOACTIVATE,
-    WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP, GetClassLongPtrW,
+    KillTimer, SetTimer, WM_MOUSEMOVE, WM_NCDESTROY, WM_RBUTTONUP, WM_TIMER, WS_EX_LAYERED,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP, GetClassLongPtrW,
 };
 
 use crate::keyboard_hook::{
@@ -189,6 +190,7 @@ impl WheelState {
             )?;
             t.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
             t.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER)?;
+            t.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)?;
             t
         };
         let tf_sm = unsafe {
@@ -198,6 +200,7 @@ impl WheelState {
             )?;
             t.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
             t.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER)?;
+            t.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)?;
             t
         };
         self.text_format = Some(tf);
@@ -232,19 +235,23 @@ impl WheelState {
         let (cx, cy, outer_r) = (self.cx, self.cy, self.outer_r);
         for i in 0..MAX_SLOTS {
             let center_rad = wheel_geometry::slice_center_angle_deg(i).to_radians() as f32;
-            let thumb_r = outer_r * 0.65;
+            let thumb_r = outer_r * 0.68;
             let display_rad = if i % 2 == 1 {
                 let sign = if i == 1 || i == 5 { 1.0f32 } else { -1.0 };
-                center_rad + sign * 5.0f32.to_radians()
+                center_rad + sign * 3.0f32.to_radians()
             } else {
                 center_rad
             };
             let tcx = cx + display_rad.cos() * thumb_r;
             let tcy = cy + display_rad.sin() * thumb_r;
             let half_span = (wheel_geometry::SLICE_SPAN_DEG / 2.0).to_radians() as f32;
-            let max_chord = 2.0 * thumb_r * half_span.sin();
             let radial_depth = outer_r * 0.58;
-            let mut w = (max_chord * 0.92).min(radial_depth * 16.0 / 9.0);
+            // Width is constrained by the chord at the thumbnail's inner edge (not its centre),
+            // so the inner corners don't cross the slice dividers.
+            // With h = w*9/16 and inner_edge = thumb_r - h/2, solving
+            // w = 0.92 * 2*(thumb_r - h/2)*sin(half_span) yields this closed form:
+            let k = 0.92 * 2.0 * half_span.sin();
+            let mut w = (k * thumb_r / (1.0 + k * 9.0 / 32.0)).min(radial_depth * 16.0 / 9.0);
             let mut h = w * 9.0 / 16.0;
             if h > radial_depth {
                 h = radial_depth;
@@ -370,6 +377,7 @@ impl WheelState {
         self.register_thumbnails(hwnd);
         self.wheel_open = true;
         WHEEL_ACTIVE.store(true, std::sync::atomic::Ordering::Relaxed);
+        unsafe { SetTimer(hwnd, 1, 16, None); }
 
         let prev = self.tracker.previous_hwnd;
         self.pre_select_handle(prev);
@@ -394,6 +402,7 @@ impl WheelState {
         self.overflow_panel_rect = None;
 
         unsafe {
+            let _ = KillTimer(hwnd, 1);
             let ex = GetWindowLongPtrW(hwnd, WINDOW_LONG_PTR_INDEX(GWL_EXSTYLE_IDX));
             SetWindowLongPtrW(
                 hwnd,
@@ -546,6 +555,7 @@ impl WheelState {
         let hover_ov = self.overflow_hover_idx;
         let tf = self.text_format.clone();
         let tf_sm = self.text_format_sm.clone();
+        let dwrite = self.dwrite_factory.clone();
 
         unsafe {
             rt.BeginDraw();
@@ -617,7 +627,7 @@ impl WheelState {
             for i in 0..MAX_SLOTS {
                 let info = match &slots[i] { Some(s) => s, None => continue };
                 let center_rad = wheel_geometry::slice_center_angle_deg(i).to_radians() as f32;
-                let icon_r = inner_r + ICON_SIZE as f32 * 0.8;
+                let icon_r = inner_r + ICON_SIZE as f32 * 1.1;
                 let ix = cx + center_rad.cos() * icon_r;
                 let iy = cy + center_rad.sin() * icon_r;
                 let half = ICON_SIZE as f32 / 2.0;
@@ -638,13 +648,21 @@ impl WheelState {
                     let tw = tr.right - tr.left;
                     let tcx = (tr.left + tr.right) / 2.0;
                     let text_above = i == 0 || i == 1 || i == 7;
-                    let ty = if text_above { tr.top - 28.0 } else { tr.bottom + 8.0 };
-                    let title_rect = frect(tcx - tw / 2.0, ty, tcx + tw / 2.0, ty + 22.0);
+                    let ty = if text_above { tr.top - 28.0 } else { tr.bottom + 6.0 };
                     let wide: Vec<u16> = info.title.encode_utf16().collect();
-                    rt.DrawText(
-                        &wide, tf_fmt, &title_rect, &*text_brush,
-                        D2D1_DRAW_TEXT_OPTIONS_CLIP, DWRITE_MEASURING_MODE_NATURAL,
-                    );
+                    if let Ok(layout) = dwrite.CreateTextLayout(&wide, tf_fmt, tw, 22.0) {
+                        let trimming = DWRITE_TRIMMING {
+                            granularity: DWRITE_TRIMMING_GRANULARITY_CHARACTER,
+                            delimiter: 0, delimiterCount: 0,
+                        };
+                        if let Ok(sign) = dwrite.CreateEllipsisTrimmingSign(tf_fmt) {
+                            let _ = layout.SetTrimming(&trimming, &sign);
+                        }
+                        rt.DrawTextLayout(
+                            pt(tcx - tw / 2.0, ty), &layout,
+                            &*text_brush, D2D1_DRAW_TEXT_OPTIONS_CLIP,
+                        );
+                    }
                 }
             }
 
@@ -687,12 +705,22 @@ impl WheelState {
                         );
                     }
                     if let Some(ref tf_fmt) = tf_sm {
-                        let text_rect = frect(pr.left + 42.0, row.top, pr.right - 8.0, row.bottom);
+                        let text_x = pr.left + 42.0;
+                        let text_w = pr.right - 8.0 - text_x;
                         let wide: Vec<u16> = title.encode_utf16().collect();
-                        rt.DrawText(
-                            &wide, tf_fmt, &text_rect, &*text_brush,
-                            D2D1_DRAW_TEXT_OPTIONS_CLIP, DWRITE_MEASURING_MODE_NATURAL,
-                        );
+                        if let Ok(layout) = dwrite.CreateTextLayout(&wide, tf_fmt, text_w, OVERFLOW_ROW_H) {
+                            let trimming = DWRITE_TRIMMING {
+                                granularity: DWRITE_TRIMMING_GRANULARITY_CHARACTER,
+                                delimiter: 0, delimiterCount: 0,
+                            };
+                            if let Ok(sign) = dwrite.CreateEllipsisTrimmingSign(tf_fmt) {
+                                let _ = layout.SetTrimming(&trimming, &sign);
+                            }
+                            rt.DrawTextLayout(
+                                pt(text_x, row.top), &layout,
+                                &*text_brush, D2D1_DRAW_TEXT_OPTIONS_CLIP,
+                            );
+                        }
                     }
                 }
             }
@@ -1397,6 +1425,17 @@ unsafe extern "system" fn wnd_proc(
                 let _ = DestroyMenu(menu);
                 if cmd.0 == 1 {
                     let _ = DestroyWindow(hwnd);
+                }
+            }
+            LRESULT(0)
+        }
+        WM_TIMER => {
+            if state.wheel_open && !state.is_dragging {
+                let mut pt = POINT::default();
+                if unsafe { GetCursorPos(&mut pt) }.is_ok() {
+                    let x = (pt.x - state.virt_x) as f32;
+                    let y = (pt.y - state.virt_y) as f32;
+                    state.on_mouse_move(hwnd, x, y);
                 }
             }
             LRESULT(0)
