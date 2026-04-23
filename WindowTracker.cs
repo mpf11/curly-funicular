@@ -153,6 +153,16 @@ public sealed class WindowTracker
         (_overflow[a], _overflow[b]) = (_overflow[b], _overflow[a]);
     }
 
+    // ---- Test helpers ----
+    internal void ForceSlot(int index, TrackedWindow? window)
+    {
+        if (_slots[index] is TrackedWindow old) _handleToSlot.Remove(old.Handle);
+        _slots[index] = window;
+        if (window is not null) { window.Slot = index; _handleToSlot[window.Handle] = index; }
+    }
+
+    internal void ForceOverflow(TrackedWindow window) => _overflow.Add(window);
+
     // --- Enumeration ---
     private List<TrackedWindow> EnumerateAltTabWindows()
     {

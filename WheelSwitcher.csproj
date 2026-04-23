@@ -13,4 +13,10 @@
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Exclude the test sub-project from the main project's CS glob -->
+    <Compile Remove="WheelSwitcher.Tests\**" />
+  </ItemGroup>
+
 </Project>
+

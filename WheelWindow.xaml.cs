@@ -13,8 +13,8 @@ namespace WheelSwitcher;
 
 public partial class WheelWindow : Window
 {
-    private const int SlotCount = 8;
-    private const double SliceSpanDeg = 360.0 / SlotCount;
+    private const int SlotCount = WheelGeometry.SlotCount;
+    private const double SliceSpanDeg = WheelGeometry.SliceSpanDeg;
 
     // Geometry (computed on show, relative to window origin)
     private double _cx, _cy;
@@ -303,42 +303,11 @@ public partial class WheelWindow : Window
         WheelCanvas.Children.Add(hub);
     }
 
-    /// <summary>Angle in degrees for the boundary BEFORE slot i (i.e. slot 0's leading edge).</summary>
-    private double SliceBoundaryAngleDeg(int i)
-    {
-        // Slot 0 centred at -90° (12 o'clock). Leading edge is -90° - 22.5° = -112.5°.
-        return -90.0 - SliceSpanDeg / 2.0 + i * SliceSpanDeg;
-    }
+    private static double SliceBoundaryAngleDeg(int i) => WheelGeometry.SliceBoundaryAngleDeg(i);
+    private static double SliceCenterAngleDeg(int i)   => WheelGeometry.SliceCenterAngleDeg(i);
 
-    /// <summary>Center angle (degrees) of slot i.</summary>
-    private double SliceCenterAngleDeg(int i)
-    {
-        return -90.0 + i * SliceSpanDeg;
-    }
-
-    /// <summary>
-    /// Convert a point to a slot index by angle, or -1 if inside the hub.
-    /// Pass requireInBounds=true (default) to also return -1 when outside the outer radius —
-    /// used for drag-drop so drops outside the wheel disc are rejected.
-    /// Pass requireInBounds=false for hover so the cursor always snaps to the nearest slice
-    /// even when it drifts beyond the wheel edge.
-    /// </summary>
     public int PointToSlot(Point p, bool requireInBounds = true)
-    {
-        double dx = p.X - _cx;
-        double dy = p.Y - _cy;
-        double dist = Math.Sqrt(dx * dx + dy * dy);
-        if (dist < _innerRadius) return -1;
-        if (requireInBounds && dist > _outerRadius) return -1;
-
-        double angDeg = Math.Atan2(dy, dx) * 180.0 / Math.PI;   // -180..180, 0 = +X (right)
-        // We want 0 = top. Normalize so 0 is top and increases clockwise.
-        double fromTop = (angDeg + 90.0 + 360.0) % 360.0;
-        // Subtract half-slice so that slot 0 spans -22.5..+22.5 around top.
-        double shifted = (fromTop + SliceSpanDeg / 2.0) % 360.0;
-        int slot = (int)(shifted / SliceSpanDeg) % SlotCount;
-        return slot;
-    }
+        => WheelGeometry.PointToSlot(p.X - _cx, p.Y - _cy, _innerRadius, _outerRadius, requireInBounds);
 
     // ---- Slice construction ----
     private void BuildSlice(int i)
