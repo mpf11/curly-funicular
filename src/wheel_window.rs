@@ -283,10 +283,10 @@ impl WheelState {
                 dwFlags: DWM_TNP_RECTDESTINATION | DWM_TNP_VISIBLE | DWM_TNP_OPACITY
                     | DWM_TNP_SOURCECLIENTAREAONLY,
                 rcDestination: RECT {
-                    left: (rect.left + 2.0) as i32,
-                    top: (rect.top + 2.0) as i32,
-                    right: (rect.right - 2.0) as i32,
-                    bottom: (rect.bottom - 2.0) as i32,
+                    left: (rect.left + 4.0) as i32,
+                    top: (rect.top + 4.0) as i32,
+                    right: (rect.right - 4.0) as i32,
+                    bottom: (rect.bottom - 4.0) as i32,
                 },
                 rcSource: RECT::default(),
                 opacity: 235,
