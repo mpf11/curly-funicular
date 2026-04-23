@@ -316,13 +316,20 @@ public partial class WheelWindow : Window
         return -90.0 + i * SliceSpanDeg;
     }
 
-    /// <summary>Convert a point around the wheel to a slot index, or -1 if inside the hub.</summary>
-    public int PointToSlot(Point p)
+    /// <summary>
+    /// Convert a point to a slot index by angle, or -1 if inside the hub.
+    /// Pass requireInBounds=true (default) to also return -1 when outside the outer radius —
+    /// used for drag-drop so drops outside the wheel disc are rejected.
+    /// Pass requireInBounds=false for hover so the cursor always snaps to the nearest slice
+    /// even when it drifts beyond the wheel edge.
+    /// </summary>
+    public int PointToSlot(Point p, bool requireInBounds = true)
     {
         double dx = p.X - _cx;
         double dy = p.Y - _cy;
         double dist = Math.Sqrt(dx * dx + dy * dy);
-        if (dist < _innerRadius || dist > _outerRadius) return -1;
+        if (dist < _innerRadius) return -1;
+        if (requireInBounds && dist > _outerRadius) return -1;
 
         double angDeg = Math.Atan2(dy, dx) * 180.0 / Math.PI;   // -180..180, 0 = +X (right)
         // We want 0 = top. Normalize so 0 is top and increases clockwise.
@@ -611,7 +618,9 @@ public partial class WheelWindow : Window
         }
         else
         {
-            int slot = PointToSlot(p);
+            // requireInBounds=false: snap to the nearest slice even outside the outer radius.
+            // Only the hub (inner radius) returns -1 to fall back to keyboard pre-selection.
+            int slot = PointToSlot(p, requireInBounds: false);
             if (slot != _hoverSlot) UpdateHover(slot);
         }
     }

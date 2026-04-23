@@ -16,7 +16,8 @@
     <Grid x:Name="RootGrid" Opacity="0">
 <!-- Host canvas: thumbnails are hosted as HwndHost-like elements; we also draw
              the glass section overlay, dividers, icons, titles here. -->
-        <Canvas x:Name="WheelCanvas" IsHitTestVisible="True" Background="Transparent"/>
+        <!-- alpha=1/255: invisible but non-zero so mouse events reach the canvas outside the visible wheel disc -->
+        <Canvas x:Name="WheelCanvas" IsHitTestVisible="True" Background="#01000000"/>
 
         <!-- Hint text centered at the bottom -->
         <TextBlock x:Name="HintText"
