@@ -847,6 +847,14 @@ impl WheelState {
                         self.re_register_thumbnail(hwnd, start);
                         self.re_register_thumbnail(hwnd, drop);
                     }
+                } else if let Some(pr) = self.overflow_panel_rect {
+                    if x >= pr.left && x < pr.right && y >= pr.top && y < pr.bottom {
+                        let drop_ov = ((y - pr.top) / OVERFLOW_ROW_H) as usize;
+                        if drop_ov < self.tracker.overflow().len() {
+                            self.tracker.swap_slot_with_overflow(start, drop_ov);
+                            self.re_register_thumbnail(hwnd, start);
+                        }
+                    }
                 }
             } else {
                 let target = self.tracker.slots()[start].as_ref().map(|w| w.hwnd);
