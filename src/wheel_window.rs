@@ -7,7 +7,8 @@ use windows::Win32::Foundation::{
 };
 use windows::Win32::Graphics::Direct2D::Common::{
     D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_FIGURE_BEGIN_FILLED,
-    D2D1_FIGURE_END_CLOSED, D2D1_PIXEL_FORMAT, D2D_POINT_2F, D2D_RECT_F, D2D_SIZE_F, D2D_SIZE_U,
+    D2D1_FIGURE_END_CLOSED, D2D1_FILL_MODE_ALTERNATE, D2D1_PIXEL_FORMAT, D2D_POINT_2F,
+    D2D_RECT_F, D2D_SIZE_F, D2D_SIZE_U,
 };
 use windows::Win32::Graphics::Direct2D::{
     D2D1CreateFactory, ID2D1Bitmap, ID2D1Brush, ID2D1DCRenderTarget, ID2D1Factory,
@@ -568,17 +569,11 @@ impl WheelState {
                 &*glow,
             );
 
-            // 2. Main disc
+            // 2. Main disc — donut shape (center is transparent).
             let disc = rt.CreateSolidColorBrush(&rgba(0.055, 0.063, 0.086, 0.87), None)?;
-            rt.FillEllipse(
-                &D2D1_ELLIPSE { point: pt(cx, cy), radiusX: outer_r, radiusY: outer_r },
-                &*disc,
-            );
-            let rim = rt.CreateSolidColorBrush(&rgba(1.0, 1.0, 1.0, 0.33), None)?;
-            rt.DrawEllipse(
-                &D2D1_ELLIPSE { point: pt(cx, cy), radiusX: outer_r, radiusY: outer_r },
-                &*rim, 1.0, None::<&ID2D1StrokeStyle>,
-            );
+            if let Ok(donut) = build_donut_geo(&self.d2d_factory, cx, cy, inner_r, outer_r) {
+                rt.FillGeometry(&donut, &*disc, None::<&ID2D1Brush>);
+            }
 
             // 3. Thumbnail placeholder rectangles.
             let thumb_rim = rt.CreateSolidColorBrush(&rgba(1.0, 1.0, 1.0, 0.27), None)?;
@@ -600,27 +595,19 @@ impl WheelState {
                 }
             }
 
-            // 5. Divider lines.
+            // 5. Divider lines — inset 15% from each edge of the ring.
+            let ring = outer_r - inner_r;
+            let spoke_inner = inner_r + ring * 0.15;
+            let spoke_outer = outer_r - ring * 0.15;
             let div = rt.CreateSolidColorBrush(&rgba(1.0, 1.0, 1.0, 0.34), None)?;
             for i in 0..SLOT_COUNT {
                 let a = wheel_geometry::slice_boundary_angle_deg(i).to_radians() as f32;
                 rt.DrawLine(
-                    pt(cx + a.cos() * inner_r, cy + a.sin() * inner_r),
-                    pt(cx + a.cos() * outer_r, cy + a.sin() * outer_r),
+                    pt(cx + a.cos() * spoke_inner, cy + a.sin() * spoke_inner),
+                    pt(cx + a.cos() * spoke_outer, cy + a.sin() * spoke_outer),
                     &*div, 1.0, None::<&ID2D1StrokeStyle>,
                 );
             }
-
-            // 6. Hub.
-            let hub = rt.CreateSolidColorBrush(&rgba(0.125, 0.133, 0.157, 0.67), None)?;
-            rt.FillEllipse(
-                &D2D1_ELLIPSE { point: pt(cx, cy), radiusX: inner_r, radiusY: inner_r },
-                &*hub,
-            );
-            rt.DrawEllipse(
-                &D2D1_ELLIPSE { point: pt(cx, cy), radiusX: inner_r, radiusY: inner_r },
-                &*rim, 0.8, None::<&ID2D1StrokeStyle>,
-            );
 
             // 7. Icons and titles.
             let text_brush = rt.CreateSolidColorBrush(&rgba(1.0, 1.0, 1.0, 0.87), None)?;
@@ -1018,6 +1005,53 @@ impl Drop for WheelState {
 }
 
 // ---- Geometry helper (free function to avoid borrow issues) ----
+
+fn build_donut_geo(
+    factory: &ID2D1Factory,
+    cx: f32, cy: f32, inner_r: f32, outer_r: f32,
+) -> windows::core::Result<windows::Win32::Graphics::Direct2D::ID2D1PathGeometry> {
+    unsafe {
+        let geo = factory.CreatePathGeometry()?;
+        let sink = geo.Open()?;
+        sink.SetFillMode(D2D1_FILL_MODE_ALTERNATE);
+        // Outer circle — two half-arcs, clockwise.
+        sink.BeginFigure(pt(cx + outer_r, cy), D2D1_FIGURE_BEGIN_FILLED);
+        sink.AddArc(&D2D1_ARC_SEGMENT {
+            point: pt(cx - outer_r, cy),
+            size: D2D_SIZE_F { width: outer_r, height: outer_r },
+            rotationAngle: 0.0,
+            sweepDirection: D2D1_SWEEP_DIRECTION_CLOCKWISE,
+            arcSize: D2D1_ARC_SIZE_SMALL,
+        });
+        sink.AddArc(&D2D1_ARC_SEGMENT {
+            point: pt(cx + outer_r, cy),
+            size: D2D_SIZE_F { width: outer_r, height: outer_r },
+            rotationAngle: 0.0,
+            sweepDirection: D2D1_SWEEP_DIRECTION_CLOCKWISE,
+            arcSize: D2D1_ARC_SIZE_SMALL,
+        });
+        sink.EndFigure(D2D1_FIGURE_END_CLOSED);
+        // Inner circle — same direction; even-odd rule punches a hole.
+        sink.BeginFigure(pt(cx + inner_r, cy), D2D1_FIGURE_BEGIN_FILLED);
+        sink.AddArc(&D2D1_ARC_SEGMENT {
+            point: pt(cx - inner_r, cy),
+            size: D2D_SIZE_F { width: inner_r, height: inner_r },
+            rotationAngle: 0.0,
+            sweepDirection: D2D1_SWEEP_DIRECTION_CLOCKWISE,
+            arcSize: D2D1_ARC_SIZE_SMALL,
+        });
+        sink.AddArc(&D2D1_ARC_SEGMENT {
+            point: pt(cx + inner_r, cy),
+            size: D2D_SIZE_F { width: inner_r, height: inner_r },
+            rotationAngle: 0.0,
+            sweepDirection: D2D1_SWEEP_DIRECTION_CLOCKWISE,
+            arcSize: D2D1_ARC_SIZE_SMALL,
+        });
+        sink.EndFigure(D2D1_FIGURE_END_CLOSED);
+        sink.Close()?;
+        Ok(geo)
+    }
+}
 
 fn build_slice_geo(
     factory: &ID2D1Factory,
