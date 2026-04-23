@@ -43,6 +43,10 @@ public sealed class WindowTracker
     public IReadOnlyList<TrackedWindow?> Slots => _slots;
     public IReadOnlyList<TrackedWindow> Overflow => _overflow;
 
+    // The window to pre-select when the wheel opens: second in Z-order (MRU), which is
+    // the window that was active before the current foreground. EnumWindows is Z-order.
+    public IntPtr PreviousWindowHandle { get; private set; }
+
     /// <summary>
     /// Enumerates current top-level windows, prunes closed ones, and fills empty slots
     /// in MRU-ish (Z-order) order up to MaxSlots.
@@ -50,6 +54,9 @@ public sealed class WindowTracker
     public void Refresh()
     {
         var live = EnumerateAltTabWindows();
+
+        // live is Z-order: live[0] = current foreground, live[1] = previously active window.
+        PreviousWindowHandle = live.Count > 1 ? live[1].Handle : IntPtr.Zero;
 
         // 1. Drop slots whose handle is gone.
         for (int i = 0; i < MaxSlots; i++)

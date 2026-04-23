@@ -51,6 +51,7 @@ public partial class WheelWindow : Window
     // Overflow panel
     private int _overflowHoverIndex = -1;
     private readonly List<UIElement> _overflowCanvasChildren = new();
+    private readonly List<Border> _overflowRows = new();
     private Rect _overflowPanelRect = Rect.Empty;
 
     public int HoverSlot => _hoverSlot >= 0 ? _hoverSlot : _defaultSlot;
@@ -327,7 +328,7 @@ public partial class WheelWindow : Window
         double dx = p.X - _cx;
         double dy = p.Y - _cy;
         double dist = Math.Sqrt(dx * dx + dy * dy);
-        if (dist < _innerRadius) return -1;
+        if (dist < _innerRadius || dist > _outerRadius) return -1;
 
         double angDeg = Math.Atan2(dy, dx) * 180.0 / Math.PI;   // -180..180, 0 = +X (right)
         // We want 0 = top. Normalize so 0 is top and increases clockwise.
@@ -886,6 +887,7 @@ public partial class WheelWindow : Window
         foreach (var el in _overflowCanvasChildren)
             WheelCanvas.Children.Remove(el);
         _overflowCanvasChildren.Clear();
+        _overflowRows.Clear();
         _overflowPanelRect = Rect.Empty;
         _overflowHoverIndex = -1;
     }
@@ -991,6 +993,7 @@ public partial class WheelWindow : Window
             Canvas.SetTop(row, panelY + i * rowH);
             WheelCanvas.Children.Add(row);
             _overflowCanvasChildren.Add(row);
+            _overflowRows.Add(row);
         }
     }
 
@@ -1040,6 +1043,41 @@ public partial class WheelWindow : Window
                 return;
             }
         }
+    }
+
+    /// <summary>
+    /// Highlight the wheel slot or overflow row that owns the given window handle.
+    /// Used to pre-select the previously active window when the wheel first opens.
+    /// Falls back to AdvanceSelection(1) if the handle is not found.
+    /// </summary>
+    public void PreSelectHandle(IntPtr handle)
+    {
+        if (handle == IntPtr.Zero || _tracker is null) { AdvanceSelection(1); return; }
+
+        for (int i = 0; i < SlotCount; i++)
+        {
+            if (_tracker.Slots[i]?.Handle == handle)
+            {
+                _defaultSlot = i;
+                if (_visuals[i]?.Highlight is { } h)
+                    AnimateHighlight(h, 0x28);
+                return;
+            }
+        }
+
+        var overflow = _tracker.Overflow;
+        for (int i = 0; i < overflow.Count; i++)
+        {
+            if (overflow[i].Handle == handle)
+            {
+                _overflowHoverIndex = i;
+                if (i < _overflowRows.Count && _overflowRows[i].Background is SolidColorBrush brush)
+                    brush.Color = Color.FromArgb(0x28, 0xFF, 0xFF, 0xFF);
+                return;
+            }
+        }
+
+        AdvanceSelection(1);
     }
 
     private sealed class SliceVisual

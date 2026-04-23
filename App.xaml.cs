@@ -81,8 +81,7 @@ public partial class App : Application
                 _isShown = true;
                 _hook!.WheelActive = true;
                 _wheel!.Present(_tracker);
-                // Pre-select the most recent non-current window (slot 1 if the foreground is slot 0).
-                _wheel!.AdvanceSelection(1);
+                _wheel!.PreSelectHandle(_tracker.PreviousWindowHandle);
             }
             else
             {
