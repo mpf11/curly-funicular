@@ -35,15 +35,13 @@ The UI is a transparent layered window that covers the entire virtual desktop. A
 
 Each frame (`draw_frame` in `wheel_window.rs`) draws in order:
 
-1. Outer glow halo
-2. Main disc background
-3. DWM thumbnail placeholder rectangles (8 slots)
-4. Selection highlight wedge
-5. Slot divider lines
-6. Central hub circle
-7. Window icons (32×32 px, placed just outside the hub on the radial axis)
-8. Window title text (single line, ellipsis-truncated to thumbnail width)
-9. Overflow panel (if any overflow exists)
+1. Main disc background
+2. DWM thumbnail placeholder rectangles (8 slots)
+3. Selection highlight wedge
+4. Slot divider lines
+5. Window icons (32×32 px, placed just outside the hub on the radial axis)
+6. Window title text (single line, ellipsis-truncated to thumbnail width)
+7. Overflow panel (if any overflow exists)
 
 DWM thumbnails are registered separately via `DwmRegisterThumbnail` and positioned to match each slot's rectangle. They render behind the D2D overlay, which is why placeholder rectangles are left transparent so thumbnails show through.
 
