@@ -38,18 +38,19 @@ use windows::Win32::Graphics::Gdi::{
     MONITORINFO, MONITOR_DEFAULTTOPRIMARY,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
 use windows::Win32::UI::Shell::{
     NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW, Shell_NotifyIconW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
     DrawIconEx, GetCursorPos, GetSystemMetrics, GetWindowLongPtrW, LoadCursorW, LoadIconW,
-    PostQuitMessage, RegisterClassExW, SendMessageW, SetCursorPos, SetForegroundWindow,
-    SetWindowLongPtrW, SetWindowPos, ShowWindow, TrackPopupMenu, UpdateLayeredWindow,
-    CREATESTRUCTW, DI_NORMAL, GET_CLASS_LONG_INDEX, GWLP_USERDATA,
-    HICON, HWND_TOPMOST, IDC_ARROW, IDI_APPLICATION, MF_STRING, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
-    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-    SW_SHOWNOACTIVATE, TPM_RETURNCMD, TPM_RIGHTBUTTON,
+    MSG, PeekMessageW, PostQuitMessage, RegisterClassExW, SendMessageW,
+    SetCursorPos, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, TrackPopupMenu,
+    UpdateLayeredWindow, CREATESTRUCTW, DI_NORMAL, GET_CLASS_LONG_INDEX, GWLP_USERDATA,
+    HICON, HWND_TOPMOST, IDC_ARROW, IDI_APPLICATION, MF_STRING, PM_NOREMOVE,
+    SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_SHOWNOACTIVATE, TPM_RETURNCMD, TPM_RIGHTBUTTON,
     ULW_ALPHA, WINDOW_LONG_PTR_INDEX, WNDCLASSEXW, WM_CONTEXTMENU, WM_LBUTTONDOWN, WM_LBUTTONUP,
     WM_MOUSEMOVE, WM_NCDESTROY, WM_RBUTTONUP, WS_EX_LAYERED, WS_EX_NOACTIVATE,
     WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP, GetClassLongPtrW,
@@ -74,6 +75,11 @@ const OVERFLOW_ROW_H: f32 = 46.0;
 const OVERFLOW_PANEL_W: f32 = 220.0;
 const OVERFLOW_GAP: f32 = 16.0;
 const TRAY_ID: u32 = 1;
+
+// Ghost overlay DIB dimensions — large enough for both drag ghost shapes.
+// Keeping it small makes clear+blit ~0.1 ms instead of ~5 ms for a full-screen DIB.
+const GHOST_DIB_W: i32 = 240; // covers 220 (overflow panel) + margin
+const GHOST_DIB_H: i32 = 100; // covers 90 (slot ghost) + margin
 
 // ---- Small geometry / colour helpers ----
 
@@ -112,6 +118,12 @@ pub struct WheelState {
     dib: HBITMAP,
     dib_bits: *mut c_void,
 
+    // Separate topmost overlay window for the drag ghost so it renders above DWM thumbnails.
+    ghost_hwnd: HWND,
+    ghost_mem_dc: HDC,
+    ghost_dib: HBITMAP,
+    ghost_dib_bits: *mut c_void,
+
     pub virt_x: i32,
     pub virt_y: i32,
     pub virt_w: i32,
@@ -134,7 +146,12 @@ pub struct WheelState {
     drag_start_overflow: i32,
     drag_start_x: f32,
     drag_start_y: f32,
+    drag_cur_x: f32,
+    drag_cur_y: f32,
     is_dragging: bool,
+
+    // Premultiplied BGRA pixel cache for icon rendering in the drag ghost.
+    icon_pixel_cache: HashMap<usize, Vec<u8>>,
 
     overflow_panel_rect: Option<D2D_RECT_F>,
     overflow_hover_idx: i32,
@@ -163,6 +180,7 @@ impl WheelState {
         unsafe { rt.BindDC(self.mem_dc, &bind_rect)? };
         self.render_target = Some(rt);
         self.icon_cache.clear();
+        self.icon_pixel_cache.clear();
 
         let tf = unsafe {
             let t = self.dwrite_factory.CreateTextFormat(
@@ -366,6 +384,9 @@ impl WheelState {
 
         self.hover_slot = -1;
         self.default_slot = -1;
+        if self.is_dragging {
+            unsafe { let _ = ReleaseCapture(); }
+        }
         self.is_dragging = false;
         self.drag_start_slot = -1;
         self.drag_start_overflow = -1;
@@ -381,6 +402,7 @@ impl WheelState {
             );
         }
         self.paint_transparent(hwnd);
+        self.clear_ghost();
 
         if let Some(target) = switch_to {
             window_activator::activate(target);
@@ -712,7 +734,14 @@ impl WheelState {
             return cached.clone();
         }
         let hicon = get_window_icon(hwnd);
-        let bmp = hicon.and_then(|ic| hicon_to_d2d_bitmap(rt, ic));
+        let (bmp, pixels) = if let Some(ic) = hicon {
+            hicon_to_d2d_bitmap(rt, ic)
+        } else {
+            (None, Vec::new())
+        };
+        if !pixels.is_empty() {
+            self.icon_pixel_cache.insert(key, pixels);
+        }
         self.icon_cache.insert(key, bmp.clone());
         bmp
     }
@@ -720,8 +749,6 @@ impl WheelState {
     // ---- Mouse interaction ----
 
     pub fn on_mouse_move(&mut self, hwnd: HWND, x: f32, y: f32) {
-        if self.is_dragging { return; }
-
         if let Some(pr) = self.overflow_panel_rect {
             if x >= pr.left && x < pr.right && y >= pr.top && y < pr.bottom {
                 let idx = ((y - pr.top) / OVERFLOW_ROW_H) as i32;
@@ -748,7 +775,9 @@ impl WheelState {
         }
     }
 
-    pub fn on_mouse_down(&mut self, _hwnd: HWND, x: f32, y: f32) {
+    pub fn on_mouse_down(&mut self, hwnd: HWND, x: f32, y: f32) {
+        let mut drag_started = false;
+
         if let Some(pr) = self.overflow_panel_rect {
             if x >= pr.left && x < pr.right && y >= pr.top && y < pr.bottom {
                 let idx = ((y - pr.top) / OVERFLOW_ROW_H) as i32;
@@ -757,31 +786,53 @@ impl WheelState {
                     self.drag_start_slot = -1;
                     self.drag_start_x = x;
                     self.drag_start_y = y;
+                    self.drag_cur_x = x;
+                    self.drag_cur_y = y;
                     self.is_dragging = true;
-                    return;
+                    drag_started = true;
                 }
             }
         }
-        if let Some(s) = wheel_geometry::point_to_slot(
-            (x - self.cx) as f64, (y - self.cy) as f64,
-            self.inner_r as f64, self.outer_r as f64, true,
-        ) {
-            self.drag_start_slot = s as i32;
-            self.drag_start_overflow = -1;
-            self.drag_start_x = x;
-            self.drag_start_y = y;
-            self.is_dragging = true;
+
+        if !drag_started {
+            if let Some(s) = wheel_geometry::point_to_slot(
+                (x - self.cx) as f64, (y - self.cy) as f64,
+                self.inner_r as f64, self.outer_r as f64, true,
+            ) {
+                self.drag_start_slot = s as i32;
+                self.drag_start_overflow = -1;
+                self.drag_start_x = x;
+                self.drag_start_y = y;
+                self.drag_cur_x = x;
+                self.drag_cur_y = y;
+                self.is_dragging = true;
+                drag_started = true;
+            }
+        }
+
+        if drag_started {
+            // Capture all mouse input so WM_MOUSEMOVE arrives even over transparent pixels.
+            unsafe { SetCapture(hwnd); }
+            // Raise ghost overlay above everything (above main wheel + its DWM thumbnails).
+            unsafe {
+                let _ = SetWindowPos(self.ghost_hwnd, HWND_TOPMOST,
+                    0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            }
+            self.draw_drag_ghost(hwnd);
         }
     }
 
     pub fn on_mouse_up(&mut self, hwnd: HWND, x: f32, y: f32) {
         if !self.is_dragging { return; }
+        unsafe { let _ = ReleaseCapture(); }
         self.is_dragging = false;
         let moved = {
             let dx = x - self.drag_start_x;
             let dy = y - self.drag_start_y;
             (dx * dx + dy * dy).sqrt() > 6.0
         };
+
+        let mut dismissed = false;
 
         if self.drag_start_slot >= 0 {
             let start = self.drag_start_slot as usize;
@@ -795,13 +846,13 @@ impl WheelState {
                         self.tracker.swap_slots(start, drop);
                         self.re_register_thumbnail(hwnd, start);
                         self.re_register_thumbnail(hwnd, drop);
-                        let _ = self.draw_frame(hwnd);
                     }
                 }
             } else {
                 let target = self.tracker.slots()[start].as_ref().map(|w| w.hwnd);
                 if target.is_some() {
                     self.dismiss(hwnd, target);
+                    dismissed = true;
                 }
             }
         } else if self.drag_start_overflow >= 0 {
@@ -814,20 +865,105 @@ impl WheelState {
                 ) {
                     self.tracker.swap_slot_with_overflow(drop, start_ov);
                     self.re_register_thumbnail(hwnd, drop);
-                    let _ = self.draw_frame(hwnd);
                 } else if let Some(pr) = self.overflow_panel_rect {
                     if x >= pr.left && x < pr.right && y >= pr.top && y < pr.bottom {
                         let drop_ov = ((y - pr.top) / OVERFLOW_ROW_H) as usize;
                         if drop_ov != start_ov && drop_ov < self.tracker.overflow().len() {
                             self.tracker.swap_overflow(start_ov, drop_ov);
-                            let _ = self.draw_frame(hwnd);
                         }
                     }
                 }
             } else if start_ov < self.tracker.overflow().len() {
                 let target = self.tracker.overflow()[start_ov].hwnd;
                 self.dismiss(hwnd, Some(target));
+                dismissed = true;
             }
+        }
+
+        // Always redraw after drag ends to erase the ghost, unless we already dismissed.
+        if !dismissed {
+            self.clear_ghost();
+            let _ = self.draw_frame(hwnd);
+        }
+    }
+
+    // ---- Pixel-level drag ghost on separate overlay window (above DWM thumbnails) ----
+
+    fn clear_ghost(&self) {
+        // Move the ghost window off-screen at 1×1. Content doesn't matter — it's invisible.
+        unsafe {
+            let sdc = GetDC(None);
+            let blend = BLENDFUNCTION {
+                BlendOp: AC_SRC_OVER as u8, BlendFlags: 0,
+                SourceConstantAlpha: 255, AlphaFormat: AC_SRC_ALPHA as u8,
+            };
+            let _ = UpdateLayeredWindow(
+                self.ghost_hwnd, sdc,
+                Some(&POINT { x: -100, y: -100 }),
+                Some(&SIZE { cx: 1, cy: 1 }),
+                self.ghost_mem_dc, Some(&POINT { x: 0, y: 0 }),
+                COLORREF(0), Some(&blend), ULW_ALPHA,
+            );
+            ReleaseDC(None, sdc);
+        }
+    }
+
+    fn draw_drag_ghost(&self, _hwnd: HWND) {
+        let n = (GHOST_DIB_W * GHOST_DIB_H * 4) as usize;
+        let stride = GHOST_DIB_W as usize * 4;
+
+        // Zero the small ghost DIB (~140 KB, sub-millisecond).
+        let dib = unsafe { std::slice::from_raw_parts_mut(self.ghost_dib_bits as *mut u8, n) };
+        unsafe { std::ptr::write_bytes(dib.as_mut_ptr(), 0, n); }
+
+        let cx = self.drag_cur_x as i32;
+        let cy = self.drag_cur_y as i32;
+
+        let (gw, gh, icon_key, icon_dst_size) = if self.drag_start_slot >= 0 {
+            let key = self.tracker.slots()[self.drag_start_slot as usize]
+                .as_ref().map(|w| w.hwnd.0 as usize);
+            (160i32, 90i32, key, 32i32)
+        } else if self.drag_start_overflow >= 0 {
+            let oi = self.drag_start_overflow as usize;
+            let key = self.tracker.overflow().get(oi).map(|w| w.hwnd.0 as usize);
+            (OVERFLOW_PANEL_W as i32, OVERFLOW_ROW_H as i32, key, 28i32)
+        } else {
+            return;
+        };
+
+        // Draw the ghost at (0, 0) in the small DIB.
+        composite_rect(dib, stride, 0, 0, gw, gh, 10, 13, 20, 230);
+        draw_rect_border(dib, stride, 0, 0, gw, gh, 255, 255, 255, 180);
+
+        // Blit icon.
+        if let Some(key) = icon_key {
+            if let Some(pixels) = self.icon_pixel_cache.get(&key) {
+                let icon_x = if self.drag_start_overflow >= 0 { 8 } else { gw / 2 - icon_dst_size / 2 };
+                let icon_y = gh / 2 - icon_dst_size / 2;
+                blit_icon(dib, stride, pixels, ICON_SIZE as usize, icon_x, icon_y, icon_dst_size);
+            }
+        }
+
+        // Position the ghost window centered on the cursor, content and position in one ULW call.
+        let screen_x = self.virt_x + cx - gw / 2;
+        let screen_y = self.virt_y + cy - gh / 2;
+        unsafe {
+            let sdc = GetDC(None);
+            let blend = BLENDFUNCTION {
+                BlendOp: AC_SRC_OVER as u8,
+                BlendFlags: 0,
+                SourceConstantAlpha: 255,
+                AlphaFormat: AC_SRC_ALPHA as u8,
+            };
+            let _ = UpdateLayeredWindow(
+                self.ghost_hwnd, sdc,
+                Some(&POINT { x: screen_x, y: screen_y }),
+                Some(&SIZE { cx: gw, cy: gh }),
+                self.ghost_mem_dc,
+                Some(&POINT { x: 0, y: 0 }),
+                COLORREF(0), Some(&blend), ULW_ALPHA,
+            );
+            ReleaseDC(None, sdc);
         }
     }
 }
@@ -838,6 +974,9 @@ impl Drop for WheelState {
         unsafe {
             if !self.mem_dc.0.is_null() { let _ = DeleteDC(self.mem_dc); }
             if !self.dib.0.is_null() { let _ = DeleteObject(HGDIOBJ(self.dib.0)); }
+            if !self.ghost_mem_dc.0.is_null() { let _ = DeleteDC(self.ghost_mem_dc); }
+            if !self.ghost_dib.0.is_null() { let _ = DeleteObject(HGDIOBJ(self.ghost_dib.0)); }
+            if !self.ghost_hwnd.0.is_null() { let _ = DestroyWindow(self.ghost_hwnd); }
         }
     }
 }
@@ -884,6 +1023,68 @@ fn build_slice_geo(
     }
 }
 
+// ---- Pixel compositing helpers for drag ghost ----
+
+// Alpha-over composite a solid BGRA color onto a premultiplied-BGRA buffer region.
+fn composite_rect(buf: &mut [u8], stride: usize, x0: i32, y0: i32, x1: i32, y1: i32, b: u8, g: u8, r: u8, a: u8) {
+    let buf_w = (stride / 4) as i32;
+    let buf_h = (buf.len() / stride) as i32;
+    let xa = x0.max(0) as usize;
+    let ya = y0.max(0) as usize;
+    let xb = x1.min(buf_w) as usize;
+    let yb = y1.min(buf_h) as usize;
+    if xa >= xb || ya >= yb { return; }
+
+    let pa = a as u32;
+    let pb = (b as u32 * pa + 127) / 255;
+    let pg = (g as u32 * pa + 127) / 255;
+    let pr = (r as u32 * pa + 127) / 255;
+    let inv = 255 - pa;
+
+    for y in ya..yb {
+        let row = &mut buf[y * stride + xa * 4..y * stride + xb * 4];
+        for px in row.chunks_mut(4) {
+            px[0] = (pb + (px[0] as u32 * inv + 127) / 255) as u8;
+            px[1] = (pg + (px[1] as u32 * inv + 127) / 255) as u8;
+            px[2] = (pr + (px[2] as u32 * inv + 127) / 255) as u8;
+            px[3] = (pa + (px[3] as u32 * inv + 127) / 255) as u8;
+        }
+    }
+}
+
+fn draw_rect_border(buf: &mut [u8], stride: usize, x0: i32, y0: i32, x1: i32, y1: i32, b: u8, g: u8, r: u8, a: u8) {
+    composite_rect(buf, stride, x0,     y0,     x1,     y0 + 1, b, g, r, a);
+    composite_rect(buf, stride, x0,     y1 - 1, x1,     y1,     b, g, r, a);
+    composite_rect(buf, stride, x0,     y0,     x0 + 1, y1,     b, g, r, a);
+    composite_rect(buf, stride, x1 - 1, y0,     x1,     y1,     b, g, r, a);
+}
+
+// Blit a premultiplied-BGRA icon (src_size×src_size) onto the buffer, scaling to dst_size×dst_size.
+fn blit_icon(buf: &mut [u8], stride: usize, pixels: &[u8], src_size: usize, dst_x: i32, dst_y: i32, dst_size: i32) {
+    let buf_w = (stride / 4) as i32;
+    let buf_h = (buf.len() / stride) as i32;
+    for dy in 0..dst_size {
+        let sy = (dy as usize * src_size) / dst_size as usize;
+        let fy = dst_y + dy;
+        if fy < 0 || fy >= buf_h { continue; }
+        for dx in 0..dst_size {
+            let sx = (dx as usize * src_size) / dst_size as usize;
+            let fx = dst_x + dx;
+            if fx < 0 || fx >= buf_w { continue; }
+            let src_off = (sy * src_size + sx) * 4;
+            if src_off + 3 >= pixels.len() { continue; }
+            let sa = pixels[src_off + 3] as u32;
+            if sa == 0 { continue; }
+            let dst_off = fy as usize * stride + fx as usize * 4;
+            let inv = 255 - sa;
+            buf[dst_off    ] = (pixels[src_off    ] as u32 + (buf[dst_off    ] as u32 * inv + 127) / 255) as u8;
+            buf[dst_off + 1] = (pixels[src_off + 1] as u32 + (buf[dst_off + 1] as u32 * inv + 127) / 255) as u8;
+            buf[dst_off + 2] = (pixels[src_off + 2] as u32 + (buf[dst_off + 2] as u32 * inv + 127) / 255) as u8;
+            buf[dst_off + 3] = (sa + (buf[dst_off + 3] as u32 * inv + 127) / 255) as u8;
+        }
+    }
+}
+
 // ---- Icon loading helpers ----
 
 unsafe fn get_window_icon(hwnd: HWND) -> Option<HICON> {
@@ -896,10 +1097,10 @@ unsafe fn get_window_icon(hwnd: HWND) -> Option<HICON> {
     None
 }
 
-unsafe fn hicon_to_d2d_bitmap(rt: &ID2D1RenderTarget, hicon: HICON) -> Option<ID2D1Bitmap> {
+unsafe fn hicon_to_d2d_bitmap(rt: &ID2D1RenderTarget, hicon: HICON) -> (Option<ID2D1Bitmap>, Vec<u8>) {
     let size = ICON_SIZE;
     let dc = CreateCompatibleDC(None);
-    if dc.0.is_null() { return None; }
+    if dc.0.is_null() { return (None, Vec::new()); }
 
     let bmi = BITMAPINFO {
         bmiHeader: BITMAPINFOHEADER {
@@ -916,7 +1117,7 @@ unsafe fn hicon_to_d2d_bitmap(rt: &ID2D1RenderTarget, hicon: HICON) -> Option<ID
     let mut bits: *mut c_void = std::ptr::null_mut();
     let dib = match CreateDIBSection(None, &bmi, DIB_RGB_COLORS, &mut bits, None, 0) {
         Ok(h) => h,
-        Err(_) => { let _ = DeleteDC(dc); return None; }
+        Err(_) => { let _ = DeleteDC(dc); return (None, Vec::new()); }
     };
     let old_obj = SelectObject(dc, HGDIOBJ(dib.0));
     std::ptr::write_bytes(bits as *mut u8, 0, (size * size * 4) as usize);
@@ -935,6 +1136,9 @@ unsafe fn hicon_to_d2d_bitmap(rt: &ID2D1RenderTarget, hicon: HICON) -> Option<ID
         }
     }
 
+    // Clone premultiplied pixels for software drag-ghost compositing.
+    let pixels_vec = pixels.to_vec();
+
     let bmp_props = D2D1_BITMAP_PROPERTIES {
         pixelFormat: D2D1_PIXEL_FORMAT {
             format: DXGI_FORMAT_B8G8R8A8_UNORM,
@@ -952,7 +1156,7 @@ unsafe fn hicon_to_d2d_bitmap(rt: &ID2D1RenderTarget, hicon: HICON) -> Option<ID
     SelectObject(dc, old_obj);
     let _ = DeleteObject(HGDIOBJ(dib.0));
     let _ = DeleteDC(dc);
-    result
+    (result, pixels_vec)
 }
 
 // ---- Window class registration and creation ----
@@ -1000,33 +1204,28 @@ pub fn create_wheel_window() -> windows::core::Result<HWND> {
         let dib = CreateDIBSection(None, &bmi, DIB_RGB_COLORS, &mut dib_bits, None, 0)?;
         SelectObject(mem_dc, HGDIOBJ(dib.0));
 
-        // Build WheelState on the heap. tracker.self_hwnd is patched after CreateWindowExW.
-        let state = Box::new(WheelState {
-            d2d_factory,
-            dwrite_factory,
-            render_target: None,
-            text_format: None,
-            text_format_sm: None,
-            icon_cache: HashMap::new(),
-            mem_dc,
-            dib,
-            dib_bits,
-            virt_x, virt_y, virt_w, virt_h,
-            cx: 0.0, cy: 0.0, inner_r: 0.0, outer_r: 0.0,
-            thumb_rects: Default::default(),
-            tracker: WindowTracker::new(HWND(std::ptr::null_mut())),
-            thumbs: [0isize; MAX_SLOTS],
-            wheel_open: false,
-            hover_slot: -1, default_slot: -1,
-            drag_start_slot: -1, drag_start_overflow: -1,
-            drag_start_x: 0.0, drag_start_y: 0.0,
-            is_dragging: false,
-            overflow_panel_rect: None,
-            overflow_hover_idx: -1,
-        });
-        // Transfer ownership to raw pointer. Freed in WM_NCDESTROY.
-        let state_ptr = Box::into_raw(state);
+        // Ghost overlay DIB — small fixed size, repositioned per-frame via UpdateLayeredWindow.
+        let ghost_mem_dc = CreateCompatibleDC(None);
+        if ghost_mem_dc.0.is_null() {
+            return Err(windows::core::Error::from_win32());
+        }
+        let ghost_bmi = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: GHOST_DIB_W,
+                biHeight: -GHOST_DIB_H,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut ghost_dib_bits: *mut c_void = std::ptr::null_mut();
+        let ghost_dib = CreateDIBSection(None, &ghost_bmi, DIB_RGB_COLORS, &mut ghost_dib_bits, None, 0)?;
+        SelectObject(ghost_mem_dc, HGDIOBJ(ghost_dib.0));
 
+        // Register window class and create main wheel window.
         let class_pcwstr = PCWSTR(CLASS_NAME_W.as_ptr());
         let wcex = WNDCLASSEXW {
             cbSize: size_of::<WNDCLASSEXW>() as u32,
@@ -1039,6 +1238,8 @@ pub fn create_wheel_window() -> windows::core::Result<HWND> {
         };
         let _ = RegisterClassExW(&wcex);
 
+        // Pass null for lpCreateParams — state_ptr is set via SetWindowLongPtrW below,
+        // after both windows are created and WheelState (which needs ghost_hwnd) is built.
         let hwnd = CreateWindowExW(
             WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT,
             class_pcwstr,
@@ -1046,14 +1247,64 @@ pub fn create_wheel_window() -> windows::core::Result<HWND> {
             WS_POPUP,
             virt_x, virt_y, virt_w, virt_h,
             None, None, hinstance,
-            Some(state_ptr as *const c_void),
+            None,
         )?;
+
+        // Ghost overlay window — purely visual, always WS_EX_TRANSPARENT so input passes through.
+        // Uses the same wnd_proc; passing no state pointer keeps it in DefWindowProcW territory.
+        let ghost_hwnd = CreateWindowExW(
+            WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT,
+            class_pcwstr,
+            PCWSTR::null(),
+            WS_POPUP,
+            virt_x, virt_y, virt_w, virt_h,
+            None, None, hinstance,
+            None, // no WheelState — wnd_proc falls through to DefWindowProcW
+        )?;
+
+        // Build WheelState on the heap. tracker.self_hwnd is patched after CreateWindowExW.
+        let state = Box::new(WheelState {
+            d2d_factory,
+            dwrite_factory,
+            render_target: None,
+            text_format: None,
+            text_format_sm: None,
+            icon_cache: HashMap::new(),
+            mem_dc,
+            dib,
+            dib_bits,
+            ghost_hwnd,
+            ghost_mem_dc,
+            ghost_dib,
+            ghost_dib_bits,
+            virt_x, virt_y, virt_w, virt_h,
+            cx: 0.0, cy: 0.0, inner_r: 0.0, outer_r: 0.0,
+            thumb_rects: Default::default(),
+            tracker: WindowTracker::new(HWND(std::ptr::null_mut())),
+            thumbs: [0isize; MAX_SLOTS],
+            wheel_open: false,
+            hover_slot: -1, default_slot: -1,
+            drag_start_slot: -1, drag_start_overflow: -1,
+            drag_start_x: 0.0, drag_start_y: 0.0,
+            drag_cur_x: 0.0, drag_cur_y: 0.0,
+            is_dragging: false,
+            icon_pixel_cache: HashMap::new(),
+            overflow_panel_rect: None,
+            overflow_hover_idx: -1,
+        });
+        // Transfer ownership to raw pointer. Freed in WM_NCDESTROY.
+        let state_ptr = Box::into_raw(state);
+
+        // Patch the GWLP_USERDATA we couldn't set at CreateWindowExW time (state was on stack).
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, state_ptr as isize);
 
         // Patch the tracker's self-HWND filter now that we have a real HWND.
         (*state_ptr).tracker = WindowTracker::new(hwnd);
 
         let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+        let _ = ShowWindow(ghost_hwnd, SW_SHOWNOACTIVATE);
         (*state_ptr).paint_transparent(hwnd);
+        (*state_ptr).clear_ghost();
 
         // Add tray icon.
         let hicon = LoadIconW(None, IDI_APPLICATION).unwrap_or_default();
@@ -1097,8 +1348,8 @@ unsafe extern "system" fn wnd_proc(
             };
             let _ = Shell_NotifyIconW(NIM_DELETE, &nid);
             drop(Box::from_raw(ptr));
+            PostQuitMessage(0); // only quit when the main wheel window is destroyed
         }
-        PostQuitMessage(0);
         return LRESULT(0);
     }
 
@@ -1146,7 +1397,18 @@ unsafe extern "system" fn wnd_proc(
             if state.wheel_open {
                 let x = (lparam.0 & 0xFFFF) as i16 as f32;
                 let y = ((lparam.0 >> 16) & 0xFFFF) as i16 as f32;
-                state.on_mouse_move(hwnd, x, y);
+                if state.is_dragging {
+                    // Pixel-level ghost: fast enough (~0.5 ms) to process every message.
+                    state.drag_cur_x = x;
+                    state.drag_cur_y = y;
+                    state.draw_drag_ghost(hwnd);
+                } else {
+                    // Coalesce D2D redraws: skip if a newer move is already queued.
+                    let mut peek = MSG::default();
+                    if !PeekMessageW(&mut peek, hwnd, WM_MOUSEMOVE, WM_MOUSEMOVE, PM_NOREMOVE).as_bool() {
+                        state.on_mouse_move(hwnd, x, y);
+                    }
+                }
             }
             LRESULT(0)
         }
