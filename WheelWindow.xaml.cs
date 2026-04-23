@@ -261,14 +261,8 @@ public partial class WheelWindow : Window
             Width = _outerRadius * 2,
             Height = _outerRadius * 2,
             IsHitTestVisible = false,
-            Fill = new RadialGradientBrush(
-                new GradientStopCollection
-                {
-                    new(Color.FromArgb(0x2A, 0xFF, 0xFF, 0xFF), 0.0),
-                    new(Color.FromArgb(0x14, 0xFF, 0xFF, 0xFF), 0.7),
-                    new(Color.FromArgb(0x08, 0xFF, 0xFF, 0xFF), 1.0),
-                }),
-            Stroke = new SolidColorBrush(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF)),
+            Fill = new SolidColorBrush(Color.FromArgb(0xCC, 0x0E, 0x10, 0x16)),
+            Stroke = new SolidColorBrush(Color.FromArgb(0x55, 0xFF, 0xFF, 0xFF)),
             StrokeThickness = 1.0
         };
         Canvas.SetLeft(disc, _cx - _outerRadius);
