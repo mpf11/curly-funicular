@@ -79,9 +79,6 @@ internal static partial class NativeMethods
     [DllImport("user32.dll")]
     public static extern IntPtr GetShellWindow();
 
-    [DllImport("user32.dll")]
-    public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
-
     [DllImport("user32.dll", SetLastError = true)]
     public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
@@ -91,14 +88,11 @@ internal static partial class NativeMethods
     [DllImport("user32.dll")]
     public static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
 
-    public const int GWL_STYLE     = -16;
     public const int GWL_EXSTYLE   = -20;
     public const uint GW_OWNER     = 4;
 
-    public const int WS_VISIBLE    = 0x10000000;
     public const int WS_EX_TOOLWINDOW = 0x00000080;
     public const int WS_EX_APPWINDOW  = 0x00040000;
-    public const int WS_EX_NOREDIRECTIONBITMAP = 0x00200000;
 
     // DWM window attributes
     public const int DWMWA_CLOAKED = 14;
@@ -162,12 +156,6 @@ internal static partial class NativeMethods
     [DllImport("dwmapi.dll")]
     public static extern int DwmUpdateThumbnailProperties(IntPtr hThumbnail, ref DWM_THUMBNAIL_PROPERTIES props);
 
-    [DllImport("dwmapi.dll")]
-    public static extern int DwmQueryThumbnailSourceSize(IntPtr hThumbnail, out SIZE size);
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct SIZE { public int cx; public int cy; }
-
     [StructLayout(LayoutKind.Sequential)]
     public struct DWM_THUMBNAIL_PROPERTIES
     {
@@ -207,7 +195,6 @@ internal static partial class NativeMethods
 
     // ---- Window extended style flags we want on the overlay ----
     public const int WS_EX_TRANSPARENT = 0x00000020;
-    public const int WS_EX_LAYERED     = 0x00080000;
     public const int WS_EX_NOACTIVATE  = 0x08000000;
 
     [DllImport("user32.dll")]

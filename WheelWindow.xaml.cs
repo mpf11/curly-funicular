@@ -7,7 +7,6 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
-using System.Windows.Media.Effects;
 using System.Windows.Shapes;
 
 namespace WheelSwitcher;
@@ -15,12 +14,12 @@ namespace WheelSwitcher;
 public partial class WheelWindow : Window
 {
     private const int SlotCount = 8;
+    private const double SliceSpanDeg = 360.0 / SlotCount;
 
-    // Geometry (computed on show)
-    private double _cx, _cy;           // center of wheel (virtual screen coords relative to window)
-    private double _innerRadius;       // hub radius (dead zone / logo)
-    private double _outerRadius;       // visual outer radius of the wheel
-    private double _sliceSpanDeg = 360.0 / SlotCount;
+    // Geometry (computed on show, relative to window origin)
+    private double _cx, _cy;
+    private double _innerRadius;
+    private double _outerRadius;
 
     // For each slot:
     // - a Path that draws the glass slice overlay
@@ -61,6 +60,7 @@ public partial class WheelWindow : Window
             ? ov[_overflowHoverIndex]
             : null;
 
+    public event Action<int>? OnSlotCommitted;
     public event Action<TrackedWindow>? OnOverflowCommitted;
 
     public WheelWindow()
@@ -109,7 +109,27 @@ public partial class WheelWindow : Window
     /// Build / refresh the visual tree while the wheel is still hidden.
     /// Call this at startup and after each dismiss so the next Present() is fast.
     /// </summary>
-    public void PreWarm(WindowTracker tracker)
+    public void PreWarm(WindowTracker tracker) => EnsureLayout(tracker);
+
+    /// <summary>Present the wheel: make it interactive, warp cursor, and show thumbnails.</summary>
+    public void Present(WindowTracker tracker)
+    {
+        EnsureLayout(tracker);
+
+        int ex = NativeMethods.GetWindowLongPtr(_hwnd, NativeMethods.GWL_EXSTYLE);
+        NativeMethods.SetWindowLong(_hwnd, NativeMethods.GWL_EXSTYLE,
+            ex & ~NativeMethods.WS_EX_TRANSPARENT);
+
+        ClearThumbnails();   // flush any thumbnails left from a deferred dismiss
+        NativeMethods.SetCursorPos((int)(_cx + Left), (int)(_cy + Top));
+        RootGrid.Opacity = 1;
+        RegisterThumbnails();            // registered invisible
+        NextRenderFrame(ShowThumbnails); // made visible just before WPF renders opacity=1
+    }
+
+    // Shared setup for both PreWarm and Present: update tracker, recompute geometry for the
+    // monitor under the cursor, and rebuild or refresh visuals as needed.
+    private void EnsureLayout(WindowTracker tracker)
     {
         _tracker = tracker;
 
@@ -137,51 +157,6 @@ public partial class WheelWindow : Window
         }
 
         BuildOverflowPanel();
-        // Leave opacity=0 and WS_EX_TRANSPARENT intact — the window stays invisible.
-    }
-
-    /// <summary>Present the wheel with the given windows and place the cursor at center.</summary>
-    public void Present(WindowTracker tracker)
-    {
-        _tracker = tracker;
-
-        var p = GetCursorScreenPoint();
-        var primary = GetMonitorRectContaining(p);
-        _cx = primary.cx - Left;
-        _cy = primary.cy - Top;
-        _outerRadius = Math.Min(primary.w, primary.h) * 0.40;
-        _innerRadius = _outerRadius * 0.18;
-
-        bool monitorChanged = !_hasLayout
-            || _cachedMonitor.cx != primary.cx || _cachedMonitor.cy != primary.cy
-            || _cachedMonitor.w  != primary.w  || _cachedMonitor.h  != primary.h;
-
-        if (monitorChanged)
-        {
-            BuildVisuals();   // also resets overflow tracking lists
-            _cachedMonitor = primary;
-            _hasLayout = true;
-        }
-        else
-        {
-            ClearOverflowPanel();
-            UpdateContent();
-        }
-
-        BuildOverflowPanel();
-
-        // Remove click-through so the window can receive mouse input.
-        int ex = NativeMethods.GetWindowLongPtr(_hwnd, NativeMethods.GWL_EXSTYLE);
-        NativeMethods.SetWindowLong(_hwnd, NativeMethods.GWL_EXSTYLE,
-            ex & ~NativeMethods.WS_EX_TRANSPARENT);
-
-        // Clear any thumbnails that might still be registered from a deferred dismiss.
-        ClearThumbnails();
-
-        NativeMethods.SetCursorPos((int)primary.cx, (int)primary.cy);
-        RootGrid.Opacity = 1;
-        RegisterThumbnails();                    // registered invisible
-        NextRenderFrame(ShowThumbnails);         // made visible just before WPF renders opacity=1
     }
 
     public void Dismiss()
@@ -337,13 +312,13 @@ public partial class WheelWindow : Window
     private double SliceBoundaryAngleDeg(int i)
     {
         // Slot 0 centred at -90° (12 o'clock). Leading edge is -90° - 22.5° = -112.5°.
-        return -90.0 - _sliceSpanDeg / 2.0 + i * _sliceSpanDeg;
+        return -90.0 - SliceSpanDeg / 2.0 + i * SliceSpanDeg;
     }
 
     /// <summary>Center angle (degrees) of slot i.</summary>
     private double SliceCenterAngleDeg(int i)
     {
-        return -90.0 + i * _sliceSpanDeg;
+        return -90.0 + i * SliceSpanDeg;
     }
 
     /// <summary>Convert a point around the wheel to a slot index, or -1 if inside the hub.</summary>
@@ -358,8 +333,8 @@ public partial class WheelWindow : Window
         // We want 0 = top. Normalize so 0 is top and increases clockwise.
         double fromTop = (angDeg + 90.0 + 360.0) % 360.0;
         // Subtract half-slice so that slot 0 spans -22.5..+22.5 around top.
-        double shifted = (fromTop + _sliceSpanDeg / 2.0) % 360.0;
-        int slot = (int)(shifted / _sliceSpanDeg) % SlotCount;
+        double shifted = (fromTop + SliceSpanDeg / 2.0) % 360.0;
+        int slot = (int)(shifted / SliceSpanDeg) % SlotCount;
         return slot;
     }
 
@@ -386,7 +361,7 @@ public partial class WheelWindow : Window
 
         // Slice arc width at that radius:
         // chord = 2 * r * sin(halfAngle). At radius thumbCenterR with full slice span:
-        double halfSpan = (_sliceSpanDeg / 2.0) * Math.PI / 180.0;
+        double halfSpan = (SliceSpanDeg / 2.0) * Math.PI / 180.0;
         double maxChord = 2 * thumbCenterR * Math.Sin(halfSpan);
 
         // Radial depth we can use: from 0.35*outer to 0.95*outer = 0.6*outer.
@@ -483,7 +458,7 @@ public partial class WheelWindow : Window
     private Geometry BuildSliceGeometry(int slot, double rIn, double rOut)
     {
         double startDeg = SliceBoundaryAngleDeg(slot);
-        double endDeg = startDeg + _sliceSpanDeg;
+        double endDeg = startDeg + SliceSpanDeg;
         double s = startDeg * Math.PI / 180.0;
         double e = endDeg * Math.PI / 180.0;
 
@@ -492,7 +467,7 @@ public partial class WheelWindow : Window
         var p2 = new Point(_cx + Math.Cos(e) * rOut, _cy + Math.Sin(e) * rOut);
         var p3 = new Point(_cx + Math.Cos(e) * rIn, _cy + Math.Sin(e) * rIn);
 
-        bool isLarge = _sliceSpanDeg > 180;
+        bool isLarge = SliceSpanDeg > 180;
 
         var fig = new PathFigure { StartPoint = p0, IsClosed = true };
         fig.Segments.Add(new LineSegment(p1, false));
@@ -771,9 +746,6 @@ public partial class WheelWindow : Window
         }
     }
 
-    /// <summary>Raised when the user commits a selection by clicking on a slot.</summary>
-    public event Action<int>? OnSlotCommitted;
-
     /// <summary>Re-register the thumbnail + refresh icon/title for one slot (after a swap).</summary>
     private void RebuildSlotContent(int i)
     {
@@ -829,9 +801,9 @@ public partial class WheelWindow : Window
 
     private void NextRenderFrame(Action callback)
     {
-        EventHandler? h = null;
-        h = (_, _) => { CompositionTarget.Rendering -= h; callback(); };
-        CompositionTarget.Rendering += h;
+        EventHandler? handler = null;
+        handler = (_, _) => { CompositionTarget.Rendering -= handler; callback(); };
+        CompositionTarget.Rendering += handler;
     }
 
     // ---- Overflow panel ----

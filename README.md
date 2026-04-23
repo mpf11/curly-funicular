@@ -1,14 +1,15 @@
 # Wheel Switcher — alternative Alt+Tab for Windows 11
 
 A full-screen, glassy, translucent pie-wheel replacement for the built-in
-Alt+Tab switcher. Up to eight windows occupy fixed sectors; moving the mouse
-into a sector selects it, releasing Alt switches to it, and you can
-click-and-drag a sector onto another to rearrange.
+Alt+Tab switcher. Up to eight windows occupy fixed sectors on the wheel;
+windows beyond that limit appear in a scrollable overflow column to the left.
+Move the mouse into a sector to select it, release Alt to switch, or
+click-and-drag to rearrange.
 
 ## Build
 
 ```
-# From the repo root, on Windows with .NET 8 SDK installed:
+# From the repo root, on Windows with .NET 10 SDK installed:
 dotnet build WheelSwitcher.sln -c Release
 
 # Run:
@@ -32,21 +33,30 @@ account. The app lives in the system tray; right-click the icon to exit.
    suspended UWP apps and other-virtual-desktop windows), not a pure tool
    window, non-owned. Slot assignments are stable: a window keeps its
    sector until it's closed, and new windows fill the lowest free slot.
+   Windows beyond the eight-slot limit are tracked in an overflow list
+   (Z-order / MRU sorted) and can be swapped onto the wheel via drag.
 
 3. **WheelWindow.xaml[.cs]** is a full-screen borderless WPF window with
    `AllowsTransparency="True"` spanning the entire virtual screen. On the
    monitor under the cursor, it:
    - centers the mouse via `SetCursorPos`
-   - draws eight pie slices with soft, edge-fading dividers (linear
-     gradient brush, opaque at hub → transparent at rim)
+   - draws eight pie slices with soft, edge-fading dividers
    - hosts a live **DWM thumbnail** (`DwmRegisterThumbnail`) for each slot
-     — this is the same GPU-composited preview the taskbar uses, so it's
-     always current with zero per-frame cost on our side
+     — the same GPU-composited preview the taskbar uses, always current
+     with zero per-frame cost
    - places the app icon just outside the hub along each slice's center ray
    - hit-tests by angle-from-center, so moving toward a slice selects it
      even before the cursor reaches the thumbnail
+   - shows an **overflow sidebar** (glass panel, left of the wheel) for any
+     windows beyond eight; rows can be dragged onto wheel slots
 
-4. **WindowActivator.cs** does the standard `AttachThreadInput` dance to
+4. **Pre-warm** — at startup and after every dismiss, `PreWarm()` builds the
+   full visual tree and loads icons while the wheel is still invisible
+   (`Opacity=0`, `WS_EX_TRANSPARENT`). The actual `Present()` call then only
+   needs to flip visibility and register DWM thumbnails, keeping latency
+   close to native Alt+Tab.
+
+5. **WindowActivator.cs** does the standard `AttachThreadInput` dance to
    bring the chosen window to the foreground — necessary because Windows
    blocks `SetForegroundWindow` from processes that don't own the current
    foreground.
@@ -73,26 +83,27 @@ account. The app lives in the system tray; right-click the icon to exit.
 
 ## Keyboard & mouse
 
-| Action                          | Effect                             |
-|---------------------------------|------------------------------------|
-| Alt+Tab                         | Open wheel / advance selection     |
-| Alt+Shift+Tab                   | Reverse-advance selection          |
-| Tab (while wheel open)          | Advance selection                  |
-| Move mouse into a sector        | Select that sector                 |
-| Click a sector                  | Switch to that window immediately  |
-| Click+drag sector → sector      | Swap the two windows' positions    |
-| Release Alt                     | Commit selection and switch        |
-| Esc                             | Cancel, no switch                  |
+| Action                                | Effect                                   |
+|---------------------------------------|------------------------------------------|
+| Alt+Tab                               | Open wheel / advance selection           |
+| Alt+Shift+Tab                         | Reverse-advance selection                |
+| Tab (while wheel open)                | Advance selection                        |
+| Move mouse into a sector              | Select that sector                       |
+| Click a sector                        | Switch to that window immediately        |
+| Click+drag sector → sector            | Swap the two windows' positions          |
+| Move mouse into overflow row          | Highlight that window                    |
+| Click an overflow row                 | Switch to that window immediately        |
+| Drag overflow row → wheel sector      | Move window from overflow onto the wheel |
+| Release Alt                           | Commit selection and switch              |
+| Esc                                   | Cancel, no switch                        |
 
 ## Known limitations
 
 - UWP apps on other virtual desktops are filtered out by design (cloaked
-  check). If you want cross-desktop switching you'd need to P/Invoke the
-  undocumented `IVirtualDesktopManager` COM interface.
-- The wheel anchors to whichever monitor has the cursor. Multi-monitor
-  users who prefer a fixed monitor can change `GetMonitorRectContaining`
-  in `WheelWindow.xaml.cs`.
+  check). Cross-desktop switching would require the undocumented
+  `IVirtualDesktopManager` COM interface.
+- The wheel anchors to whichever monitor has the cursor. To fix it to a
+  specific monitor, change `GetMonitorRectContaining` in `WheelWindow.xaml.cs`.
 - Thumbnails do not rotate to follow the slice angle — DWM composites
-  them axis-aligned. Keeping them upright was the deliberate choice; the
-  alternative (no thumbnails, just tiled bitmap captures we rotate
-  ourselves) would lose the "live" quality.
+  them axis-aligned. The alternative (bitmap captures rotated in software)
+  would lose the live-preview quality.
