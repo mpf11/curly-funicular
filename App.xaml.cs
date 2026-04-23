@@ -47,6 +47,11 @@ public partial class App : Application
         _hook.Install();
 
         BuildTrayIcon();
+
+        // Pre-warm: build the visual tree while the wheel is still invisible so the
+        // first real show is instantaneous (no cold WPF layout pass on the hot path).
+        _tracker.Refresh();
+        _wheel.PreWarm(_tracker);
     }
 
     private void BuildTrayIcon()
@@ -117,6 +122,7 @@ public partial class App : Application
             _isShown = false;
             _hook!.WheelActive = false;
             _wheel!.Dismiss();
+            ScheduleReWarm();
         });
     }
 
@@ -127,6 +133,7 @@ public partial class App : Application
         _hook!.WheelActive = false;
         _wheel!.Dismiss();
         WindowActivator.Activate(tw.Handle);
+        ScheduleReWarm();
     }
 
     private void CommitSelection(int slot)
@@ -137,7 +144,6 @@ public partial class App : Application
 
         if (slot >= 0 && _tracker!.Slots[slot] is TrackedWindow tw)
         {
-            // Hide the wheel BEFORE activating target - otherwise we briefly steal focus from it.
             _wheel!.Dismiss();
             WindowActivator.Activate(tw.Handle);
         }
@@ -145,6 +151,17 @@ public partial class App : Application
         {
             _wheel!.Dismiss();
         }
+        ScheduleReWarm();
+    }
+
+    private void ScheduleReWarm()
+    {
+        // Run at background priority so the dismiss render completes first.
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () =>
+        {
+            _tracker!.Refresh();
+            _wheel!.PreWarm(_tracker);
+        });
     }
 
     protected override void OnExit(ExitEventArgs e)

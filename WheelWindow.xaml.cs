@@ -105,6 +105,41 @@ public partial class WheelWindow : Window
 
     public IntPtr Handle => _hwnd;
 
+    /// <summary>
+    /// Build / refresh the visual tree while the wheel is still hidden.
+    /// Call this at startup and after each dismiss so the next Present() is fast.
+    /// </summary>
+    public void PreWarm(WindowTracker tracker)
+    {
+        _tracker = tracker;
+
+        var p = GetCursorScreenPoint();
+        var primary = GetMonitorRectContaining(p);
+        _cx = primary.cx - Left;
+        _cy = primary.cy - Top;
+        _outerRadius = Math.Min(primary.w, primary.h) * 0.40;
+        _innerRadius = _outerRadius * 0.18;
+
+        bool monitorChanged = !_hasLayout
+            || _cachedMonitor.cx != primary.cx || _cachedMonitor.cy != primary.cy
+            || _cachedMonitor.w  != primary.w  || _cachedMonitor.h  != primary.h;
+
+        if (monitorChanged)
+        {
+            BuildVisuals();
+            _cachedMonitor = primary;
+            _hasLayout = true;
+        }
+        else
+        {
+            ClearOverflowPanel();
+            UpdateContent();
+        }
+
+        BuildOverflowPanel();
+        // Leave opacity=0 and WS_EX_TRANSPARENT intact — the window stays invisible.
+    }
+
     /// <summary>Present the wheel with the given windows and place the cursor at center.</summary>
     public void Present(WindowTracker tracker)
     {
@@ -140,14 +175,19 @@ public partial class WheelWindow : Window
         NativeMethods.SetWindowLong(_hwnd, NativeMethods.GWL_EXSTYLE,
             ex & ~NativeMethods.WS_EX_TRANSPARENT);
 
+        // Clear any thumbnails that might still be registered from a deferred dismiss.
+        ClearThumbnails();
+
         NativeMethods.SetCursorPos((int)primary.cx, (int)primary.cy);
         RootGrid.Opacity = 1;
-        RegisterThumbnails();
+        RegisterThumbnails();                    // registered invisible
+        NextRenderFrame(ShowThumbnails);         // made visible just before WPF renders opacity=1
     }
 
     public void Dismiss()
     {
-        ClearThumbnails();
+        // Defer thumbnail removal to the same render frame as opacity=0.
+        NextRenderFrame(ClearThumbnails);
 
         // Reset all slice highlights instantly so they don't carry over to the next show.
         for (int i = 0; i < SlotCount; i++)
@@ -368,10 +408,6 @@ public partial class WheelWindow : Window
             Background = new SolidColorBrush(Color.FromArgb(0x55, 0x0A, 0x0D, 0x12)),   // placeholder under the thumbnail
             BorderBrush = new SolidColorBrush(Color.FromArgb(0x44, 0xFF, 0xFF, 0xFF)),
             BorderThickness = new Thickness(1),
-            Effect = new DropShadowEffect
-            {
-                BlurRadius = 22, ShadowDepth = 0, Color = Colors.Black, Opacity = 0.55
-            },
             IsHitTestVisible = false
         };
         Canvas.SetLeft(thumbHost, thumbCx - thumbW / 2);
@@ -395,8 +431,7 @@ public partial class WheelWindow : Window
         {
             Width = 34,
             Height = 34,
-            IsHitTestVisible = false,
-            Effect = new DropShadowEffect { BlurRadius = 10, ShadowDepth = 0, Color = Colors.Black, Opacity = 0.8 }
+            IsHitTestVisible = false
         };
         // Place just outside the hub along the slice's center ray.
         double iconR = _innerRadius + 26;
@@ -417,8 +452,7 @@ public partial class WheelWindow : Window
             Width = thumbW,
             TextAlignment = TextAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
-            IsHitTestVisible = false,
-            Effect = new DropShadowEffect { BlurRadius = 6, ShadowDepth = 0, Color = Colors.Black, Opacity = 0.9 }
+            IsHitTestVisible = false
         };
         bool textAbove = (i == 0 || i == 1 || i == 7);
         double ty = textAbove
@@ -544,10 +578,24 @@ public partial class WheelWindow : Window
                     Bottom = (int)Math.Round((rect.Y + rect.Height - 2) * scaleY),
                 },
                 opacity = 235,
-                fVisible = true,
+                fVisible = false,
                 fSourceClientAreaOnly = false
             };
             NativeMethods.DwmUpdateThumbnailProperties(thumb, ref props);
+        }
+    }
+
+    private void ShowThumbnails()
+    {
+        for (int i = 0; i < SlotCount; i++)
+        {
+            if (_thumbs[i] == IntPtr.Zero) continue;
+            var props = new NativeMethods.DWM_THUMBNAIL_PROPERTIES
+            {
+                dwFlags = NativeMethods.DWM_TNP_VISIBLE,
+                fVisible = true
+            };
+            NativeMethods.DwmUpdateThumbnailProperties(_thumbs[i], ref props);
         }
     }
 
@@ -779,6 +827,13 @@ public partial class WheelWindow : Window
         NativeMethods.DwmUpdateThumbnailProperties(thumb, ref props);
     }
 
+    private void NextRenderFrame(Action callback)
+    {
+        EventHandler? h = null;
+        h = (_, _) => { CompositionTarget.Rendering -= h; callback(); };
+        CompositionTarget.Rendering += h;
+    }
+
     // ---- Overflow panel ----
 
     private int HitTestOverflowRow(Point p)
@@ -886,8 +941,7 @@ public partial class WheelWindow : Window
             Background = new SolidColorBrush(Color.FromArgb(0xCC, 0x0E, 0x10, 0x16)),
             BorderBrush = new SolidColorBrush(Color.FromArgb(0x55, 0xFF, 0xFF, 0xFF)),
             BorderThickness = new Thickness(1),
-            IsHitTestVisible = false,
-            Effect = new DropShadowEffect { BlurRadius = 28, ShadowDepth = 0, Color = Colors.Black, Opacity = 0.65 }
+            IsHitTestVisible = false
         };
         Canvas.SetLeft(bg, panelX);
         Canvas.SetTop(bg, panelY);

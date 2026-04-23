@@ -14,24 +14,9 @@
         SnapsToDevicePixels="True">
 
     <Grid x:Name="RootGrid" Opacity="0">
-        <!-- Backdrop: a radial dim so content behind reads softer, but still visible -->
-        <Rectangle x:Name="Backdrop" IsHitTestVisible="False">
-            <Rectangle.Fill>
-                <RadialGradientBrush x:Name="BackdropBrush" GradientOrigin="0.5,0.5" Center="0.5,0.5" RadiusX="0.7" RadiusY="0.7">
-                    <GradientStop Offset="0.0" Color="#66000000"/>
-                    <GradientStop Offset="0.6" Color="#44000000"/>
-                    <GradientStop Offset="1.0" Color="#22000000"/>
-                </RadialGradientBrush>
-            </Rectangle.Fill>
-        </Rectangle>
-
-        <!-- Host canvas: thumbnails are hosted as HwndHost-like elements; we also draw
+<!-- Host canvas: thumbnails are hosted as HwndHost-like elements; we also draw
              the glass section overlay, dividers, icons, titles here. -->
-        <Canvas x:Name="WheelCanvas" IsHitTestVisible="True" Background="Transparent">
-            <Canvas.CacheMode>
-                <BitmapCache />
-            </Canvas.CacheMode>
-        </Canvas>
+        <Canvas x:Name="WheelCanvas" IsHitTestVisible="True" Background="Transparent"/>
 
         <!-- Hint text centered at the bottom -->
         <TextBlock x:Name="HintText"
@@ -41,10 +26,7 @@
                    Foreground="#BBFFFFFF"
                    FontSize="13"
                    FontFamily="Segoe UI Variable Display, Segoe UI"
-                   IsHitTestVisible="False">
-            <TextBlock.Effect>
-                <DropShadowEffect BlurRadius="8" ShadowDepth="0" Color="Black" Opacity="0.6"/>
-            </TextBlock.Effect>
-        </TextBlock>
+                   IsHitTestVisible="False"/>
+
     </Grid>
 </Window>
