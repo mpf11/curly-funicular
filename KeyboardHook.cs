@@ -23,7 +23,7 @@ internal sealed class KeyboardHook : IDisposable
     public bool WheelActive { get; set; }
 
     private IntPtr _hookId = IntPtr.Zero;
-    private NativeMethods.LowLevelKeyboardProc? _proc;   // kept as a field so the GC doesn't collect the delegate
+    private NativeMethods.LowLevelKeyboardProc? _proc; // kept as a field so the GC doesn't collect the delegate
 
     public void Install()
     {
@@ -34,15 +34,19 @@ internal sealed class KeyboardHook : IDisposable
             NativeMethods.WH_KEYBOARD_LL,
             _proc,
             NativeMethods.GetModuleHandle(curModule.ModuleName),
-            0);
+            0
+        );
 
         if (_hookId == IntPtr.Zero)
-            throw new InvalidOperationException($"SetWindowsHookEx failed, error {Marshal.GetLastWin32Error()}");
+            throw new InvalidOperationException(
+                $"SetWindowsHookEx failed, error {Marshal.GetLastWin32Error()}"
+            );
     }
 
     private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
-        if (nCode < 0) return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
+        if (nCode < 0)
+            return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
 
         var data = Marshal.PtrToStructure<NativeMethods.KBDLLHOOKSTRUCT>(lParam);
 
@@ -51,7 +55,7 @@ internal sealed class KeyboardHook : IDisposable
 
         int msg = wParam.ToInt32();
         bool isKeyDown = msg == NativeMethods.WM_KEYDOWN || msg == NativeMethods.WM_SYSKEYDOWN;
-        bool isKeyUp   = msg == NativeMethods.WM_KEYUP   || msg == NativeMethods.WM_SYSKEYUP;
+        bool isKeyUp = msg == NativeMethods.WM_KEYUP || msg == NativeMethods.WM_SYSKEYUP;
 
         bool altHeld = (data.flags & NativeMethods.LLKHF_ALTDOWN) != 0;
 
@@ -66,7 +70,7 @@ internal sealed class KeyboardHook : IDisposable
             else
                 AltTabPressed?.Invoke();
 
-            return (IntPtr)1;   // swallow - Windows never sees this Tab
+            return (IntPtr)1; // swallow - Windows never sees this Tab
         }
 
         // Once the wheel is up we also want to swallow Tab alone (navigate forward) and Esc (cancel).
@@ -74,7 +78,7 @@ internal sealed class KeyboardHook : IDisposable
         {
             if (data.vkCode == NativeMethods.VK_TAB)
             {
-                AltTabPressed?.Invoke();   // advance selection
+                AltTabPressed?.Invoke(); // advance selection
                 return (IntPtr)1;
             }
             if (data.vkCode == NativeMethods.VK_ESCAPE)
@@ -85,10 +89,15 @@ internal sealed class KeyboardHook : IDisposable
         }
 
         // Alt release -> commit the current selection. Both LMENU and RMENU count.
-        if (WheelActive && isKeyUp &&
-            (data.vkCode == NativeMethods.VK_MENU ||
-             data.vkCode == NativeMethods.VK_LMENU ||
-             data.vkCode == NativeMethods.VK_RMENU))
+        if (
+            WheelActive
+            && isKeyUp
+            && (
+                data.vkCode == NativeMethods.VK_MENU
+                || data.vkCode == NativeMethods.VK_LMENU
+                || data.vkCode == NativeMethods.VK_RMENU
+            )
+        )
         {
             AltReleased?.Invoke();
             // Don't swallow the up event - the foreground app may need to see Alt released cleanly.

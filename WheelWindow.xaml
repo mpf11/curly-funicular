@@ -1,33 +1,36 @@
-<Window x:Class="WheelSwitcher.WheelWindow"
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        WindowStyle="None"
-        AllowsTransparency="True"
-        Background="Transparent"
-        ResizeMode="NoResize"
-        ShowInTaskbar="False"
-        Topmost="True"
-        Focusable="False"
-        WindowStartupLocation="Manual"
-        Title="Wheel Switcher"
-        UseLayoutRounding="True"
-        SnapsToDevicePixels="True">
-
-    <Grid x:Name="RootGrid" Opacity="0">
-<!-- Host canvas: thumbnails are hosted as HwndHost-like elements; we also draw
+<Window
+  x:Class="WheelSwitcher.WheelWindow"
+  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+  WindowStyle="None"
+  AllowsTransparency="True"
+  Background="Transparent"
+  ResizeMode="NoResize"
+  ShowInTaskbar="False"
+  Topmost="True"
+  Focusable="False"
+  WindowStartupLocation="Manual"
+  Title="Wheel Switcher"
+  UseLayoutRounding="True"
+  SnapsToDevicePixels="True"
+>
+  <Grid x:Name="RootGrid" Opacity="0">
+    <!-- Host canvas: thumbnails are hosted as HwndHost-like elements; we also draw
              the glass section overlay, dividers, icons, titles here. -->
-        <!-- alpha=1/255: invisible but non-zero so mouse events reach the canvas outside the visible wheel disc -->
-        <Canvas x:Name="WheelCanvas" IsHitTestVisible="True" Background="#01000000"/>
+    <!-- alpha=1/255: invisible but non-zero so mouse events reach the canvas outside the visible wheel disc -->
+    <Canvas x:Name="WheelCanvas" IsHitTestVisible="True" Background="#01000000" />
 
-        <!-- Hint text centered at the bottom -->
-        <TextBlock x:Name="HintText"
-                   Text="Move to select  ·  Click+drag to rearrange  ·  Release Alt to switch  ·  Esc to cancel"
-                   HorizontalAlignment="Center" VerticalAlignment="Bottom"
-                   Margin="0,0,0,48"
-                   Foreground="#BBFFFFFF"
-                   FontSize="13"
-                   FontFamily="Segoe UI Variable Display, Segoe UI"
-                   IsHitTestVisible="False"/>
-
-    </Grid>
+    <!-- Hint text centered at the bottom -->
+    <TextBlock
+      x:Name="HintText"
+      Text="Move to select  ·  Click+drag to rearrange  ·  Release Alt to switch  ·  Esc to cancel"
+      HorizontalAlignment="Center"
+      VerticalAlignment="Bottom"
+      Margin="0,0,0,48"
+      Foreground="#BBFFFFFF"
+      FontSize="13"
+      FontFamily="Segoe UI Variable Display, Segoe UI"
+      IsHitTestVisible="False"
+    />
+  </Grid>
 </Window>

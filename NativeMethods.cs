@@ -11,18 +11,18 @@ internal static partial class NativeMethods
 {
     // ---- Hook constants ----
     public const int WH_KEYBOARD_LL = 13;
-    public const int WM_KEYDOWN    = 0x0100;
-    public const int WM_KEYUP      = 0x0101;
+    public const int WM_KEYDOWN = 0x0100;
+    public const int WM_KEYUP = 0x0101;
     public const int WM_SYSKEYDOWN = 0x0104;
-    public const int WM_SYSKEYUP   = 0x0105;
+    public const int WM_SYSKEYUP = 0x0105;
 
     // Virtual-key codes we care about
-    public const int VK_TAB      = 0x09;
-    public const int VK_MENU     = 0x12;   // Alt
-    public const int VK_LMENU    = 0xA4;
-    public const int VK_RMENU    = 0xA5;
-    public const int VK_ESCAPE   = 0x1B;
-    public const int VK_SHIFT    = 0x10;
+    public const int VK_TAB = 0x09;
+    public const int VK_MENU = 0x12; // Alt
+    public const int VK_LMENU = 0xA4;
+    public const int VK_RMENU = 0xA5;
+    public const int VK_ESCAPE = 0x1B;
+    public const int VK_SHIFT = 0x10;
 
     // Low-level keyboard hook flags
     public const uint LLKHF_ALTDOWN = 0x20;
@@ -41,7 +41,12 @@ internal static partial class NativeMethods
     public delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
 
     [DllImport("user32.dll", SetLastError = true)]
-    public static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
+    public static extern IntPtr SetWindowsHookEx(
+        int idHook,
+        LowLevelKeyboardProc lpfn,
+        IntPtr hMod,
+        uint dwThreadId
+    );
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -88,21 +93,31 @@ internal static partial class NativeMethods
     [DllImport("user32.dll")]
     public static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
 
-    public const int GWL_EXSTYLE   = -20;
-    public const uint GW_OWNER     = 4;
+    public const int GWL_EXSTYLE = -20;
+    public const uint GW_OWNER = 4;
 
     public const int WS_EX_TOOLWINDOW = 0x00000080;
-    public const int WS_EX_APPWINDOW  = 0x00040000;
+    public const int WS_EX_APPWINDOW = 0x00040000;
 
     // DWM window attributes
     public const int DWMWA_CLOAKED = 14;
     public const int DWMWA_TRANSITIONS_FORCEDISABLED = 3;
 
     [DllImport("dwmapi.dll")]
-    public static extern int DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute, out int pvAttribute, int cbAttribute);
+    public static extern int DwmGetWindowAttribute(
+        IntPtr hwnd,
+        int dwAttribute,
+        out int pvAttribute,
+        int cbAttribute
+    );
 
     [DllImport("dwmapi.dll")]
-    public static extern int DwmSetWindowAttribute(IntPtr hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
+    public static extern int DwmSetWindowAttribute(
+        IntPtr hwnd,
+        int dwAttribute,
+        ref int pvAttribute,
+        int cbAttribute
+    );
 
     // ---- Foreground switching (the "attach thread input" trick to bypass SetForegroundWindow restrictions) ----
     [DllImport("user32.dll")]
@@ -128,7 +143,7 @@ internal static partial class NativeMethods
     public static extern uint GetCurrentThreadId();
 
     public const int SW_RESTORE = 9;
-    public const int SW_SHOW    = 5;
+    public const int SW_SHOW = 5;
 
     // ---- Mouse positioning ----
     [DllImport("user32.dll")]
@@ -140,10 +155,20 @@ internal static partial class NativeMethods
     public static extern bool GetCursorPos(out POINT lpPoint);
 
     [StructLayout(LayoutKind.Sequential)]
-    public struct POINT { public int X; public int Y; }
+    public struct POINT
+    {
+        public int X;
+        public int Y;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
-    public struct RECT { public int Left, Top, Right, Bottom; }
+    public struct RECT
+    {
+        public int Left,
+            Top,
+            Right,
+            Bottom;
+    }
 
     // ---- DWM Live Thumbnails ----
     // These give us a real, GPU-composited live preview of another window. Perfect for filling wheel sections.
@@ -154,7 +179,10 @@ internal static partial class NativeMethods
     public static extern int DwmUnregisterThumbnail(IntPtr thumb);
 
     [DllImport("dwmapi.dll")]
-    public static extern int DwmUpdateThumbnailProperties(IntPtr hThumbnail, ref DWM_THUMBNAIL_PROPERTIES props);
+    public static extern int DwmUpdateThumbnailProperties(
+        IntPtr hThumbnail,
+        ref DWM_THUMBNAIL_PROPERTIES props
+    );
 
     [StructLayout(LayoutKind.Sequential)]
     public struct DWM_THUMBNAIL_PROPERTIES
@@ -163,14 +191,18 @@ internal static partial class NativeMethods
         public RECT rcDestination;
         public RECT rcSource;
         public byte opacity;
-        [MarshalAs(UnmanagedType.Bool)] public bool fVisible;
-        [MarshalAs(UnmanagedType.Bool)] public bool fSourceClientAreaOnly;
+
+        [MarshalAs(UnmanagedType.Bool)]
+        public bool fVisible;
+
+        [MarshalAs(UnmanagedType.Bool)]
+        public bool fSourceClientAreaOnly;
     }
 
-    public const uint DWM_TNP_RECTDESTINATION   = 0x00000001;
-    public const uint DWM_TNP_RECTSOURCE        = 0x00000002;
-    public const uint DWM_TNP_OPACITY           = 0x00000004;
-    public const uint DWM_TNP_VISIBLE           = 0x00000008;
+    public const uint DWM_TNP_RECTDESTINATION = 0x00000001;
+    public const uint DWM_TNP_RECTSOURCE = 0x00000002;
+    public const uint DWM_TNP_OPACITY = 0x00000004;
+    public const uint DWM_TNP_VISIBLE = 0x00000008;
     public const uint DWM_TNP_SOURCECLIENTAREAONLY = 0x00000010;
 
     // ---- Icon extraction for the center-spoke section icon ----
@@ -184,10 +216,10 @@ internal static partial class NativeMethods
     public static extern uint GetClassLong(IntPtr hWnd, int nIndex);
 
     public const uint WM_GETICON = 0x007F;
-    public const int ICON_SMALL  = 0;
-    public const int ICON_BIG    = 1;
+    public const int ICON_SMALL = 0;
+    public const int ICON_BIG = 1;
     public const int ICON_SMALL2 = 2;
-    public const int GCL_HICON   = -14;
+    public const int GCL_HICON = -14;
     public const int GCL_HICONSM = -34;
 
     [DllImport("user32.dll")]
@@ -195,7 +227,7 @@ internal static partial class NativeMethods
 
     // ---- Window extended style flags we want on the overlay ----
     public const int WS_EX_TRANSPARENT = 0x00000020;
-    public const int WS_EX_NOACTIVATE  = 0x08000000;
+    public const int WS_EX_NOACTIVATE = 0x08000000;
 
     [DllImport("user32.dll")]
     public static extern int SetWindowLong(IntPtr hwnd, int index, int newStyle);
@@ -205,10 +237,19 @@ internal static partial class NativeMethods
 
     // Process path (for icon fallback)
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    public static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, uint dwProcessId);
+    public static extern IntPtr OpenProcess(
+        uint dwDesiredAccess,
+        bool bInheritHandle,
+        uint dwProcessId
+    );
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    public static extern bool QueryFullProcessImageName(IntPtr hProcess, int dwFlags, StringBuilder lpExeName, ref int lpdwSize);
+    public static extern bool QueryFullProcessImageName(
+        IntPtr hProcess,
+        int dwFlags,
+        StringBuilder lpExeName,
+        ref int lpdwSize
+    );
 
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern bool CloseHandle(IntPtr hObject);

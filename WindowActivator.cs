@@ -14,6 +14,7 @@ internal static class WindowActivator
     private static readonly Dictionary<string, ImageSource?> _iconByPath = new();
 
     public static void EvictIcon(IntPtr hWnd) => _iconByHwnd.Remove(hWnd);
+
     /// <summary>
     /// Reliably bring hWnd to the foreground. Windows blocks SetForegroundWindow unless
     /// you "own" the foreground; the trick is to attach our input queue to the current
@@ -22,7 +23,8 @@ internal static class WindowActivator
     /// </summary>
     public static void Activate(IntPtr hWnd)
     {
-        if (hWnd == IntPtr.Zero) return;
+        if (hWnd == IntPtr.Zero)
+            return;
 
         if (NativeMethods.IsIconic(hWnd))
             NativeMethods.ShowWindow(hWnd, NativeMethods.SW_RESTORE);
@@ -57,18 +59,35 @@ internal static class WindowActivator
     /// </summary>
     public static ImageSource? GetIconForWindow(IntPtr hWnd, string processPath)
     {
-        if (_iconByHwnd.TryGetValue(hWnd, out var cached)) return cached;
+        if (_iconByHwnd.TryGetValue(hWnd, out var cached))
+            return cached;
 
-        IntPtr hIcon = NativeMethods.SendMessage(hWnd, NativeMethods.WM_GETICON, (IntPtr)NativeMethods.ICON_BIG, IntPtr.Zero);
+        IntPtr hIcon = NativeMethods.SendMessage(
+            hWnd,
+            NativeMethods.WM_GETICON,
+            (IntPtr)NativeMethods.ICON_BIG,
+            IntPtr.Zero
+        );
         if (hIcon == IntPtr.Zero)
-            hIcon = NativeMethods.SendMessage(hWnd, NativeMethods.WM_GETICON, (IntPtr)NativeMethods.ICON_SMALL2, IntPtr.Zero);
+            hIcon = NativeMethods.SendMessage(
+                hWnd,
+                NativeMethods.WM_GETICON,
+                (IntPtr)NativeMethods.ICON_SMALL2,
+                IntPtr.Zero
+            );
         if (hIcon == IntPtr.Zero)
-            hIcon = NativeMethods.SendMessage(hWnd, NativeMethods.WM_GETICON, (IntPtr)NativeMethods.ICON_SMALL, IntPtr.Zero);
+            hIcon = NativeMethods.SendMessage(
+                hWnd,
+                NativeMethods.WM_GETICON,
+                (IntPtr)NativeMethods.ICON_SMALL,
+                IntPtr.Zero
+            );
 
         if (hIcon == IntPtr.Zero)
         {
             IntPtr cls = NativeMethods.GetClassLongPtr(hWnd, NativeMethods.GCL_HICON);
-            if (cls == IntPtr.Zero) cls = NativeMethods.GetClassLongPtr(hWnd, NativeMethods.GCL_HICONSM);
+            if (cls == IntPtr.Zero)
+                cls = NativeMethods.GetClassLongPtr(hWnd, NativeMethods.GCL_HICONSM);
             hIcon = cls;
         }
 
@@ -79,7 +98,8 @@ internal static class WindowActivator
                 var src = Imaging.CreateBitmapSourceFromHIcon(
                     hIcon,
                     System.Windows.Int32Rect.Empty,
-                    BitmapSizeOptions.FromEmptyOptions());
+                    BitmapSizeOptions.FromEmptyOptions()
+                );
                 src.Freeze();
                 _iconByHwnd[hWnd] = src;
                 return src;
@@ -106,7 +126,8 @@ internal static class WindowActivator
                         var src = Imaging.CreateBitmapSourceFromHIcon(
                             ico.Handle,
                             System.Windows.Int32Rect.Empty,
-                            BitmapSizeOptions.FromEmptyOptions());
+                            BitmapSizeOptions.FromEmptyOptions()
+                        );
                         src.Freeze();
                         _iconByPath[processPath] = src;
                         _iconByHwnd[hWnd] = src;

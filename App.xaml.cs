@@ -21,11 +21,19 @@ public partial class App : Application
         base.OnStartup(e);
 
         // Single-instance: refuse to start a second copy (it would double-install the hook).
-        _singleInstanceMutex = new Mutex(initiallyOwned: true, name: @"Global\WheelSwitcher.SingleInstance", out bool createdNew);
+        _singleInstanceMutex = new Mutex(
+            initiallyOwned: true,
+            name: @"Global\WheelSwitcher.SingleInstance",
+            out bool createdNew
+        );
         if (!createdNew)
         {
-            MessageBox.Show("Wheel Switcher is already running (check the system tray).",
-                "Wheel Switcher", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(
+                "Wheel Switcher is already running (check the system tray).",
+                "Wheel Switcher",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information
+            );
             Shutdown();
             return;
         }
@@ -40,10 +48,10 @@ public partial class App : Application
         _tracker = new WindowTracker(_wheel.Handle);
 
         _hook = new KeyboardHook();
-        _hook.AltTabPressed  += OnAltTab;
+        _hook.AltTabPressed += OnAltTab;
         _hook.ShiftTabPressed += OnShiftTab;
-        _hook.AltReleased    += OnAltReleased;
-        _hook.EscapePressed  += OnEscape;
+        _hook.AltReleased += OnAltReleased;
+        _hook.EscapePressed += OnEscape;
         _hook.Install();
 
         BuildTrayIcon();
@@ -60,7 +68,7 @@ public partial class App : Application
         {
             Icon = SystemIcons.Application,
             Visible = true,
-            Text = "Wheel Switcher"
+            Text = "Wheel Switcher",
         };
         var menu = new System.Windows.Forms.ContextMenuStrip();
         menu.Items.Add("Wheel Switcher").Enabled = false;
@@ -104,7 +112,8 @@ public partial class App : Application
     {
         Dispatcher.BeginInvoke(() =>
         {
-            if (!_isShown) return;
+            if (!_isShown)
+                return;
             var overflowTw = _wheel!.SelectedOverflowWindow;
             if (overflowTw is not null)
                 CommitWindowDirect(overflowTw);
@@ -117,7 +126,8 @@ public partial class App : Application
     {
         Dispatcher.BeginInvoke(() =>
         {
-            if (!_isShown) return;
+            if (!_isShown)
+                return;
             _isShown = false;
             _hook!.WheelActive = false;
             _wheel!.Dismiss();
@@ -127,7 +137,8 @@ public partial class App : Application
 
     private void CommitWindowDirect(TrackedWindow tw)
     {
-        if (!_isShown) return;
+        if (!_isShown)
+            return;
         _isShown = false;
         _hook!.WheelActive = false;
         _wheel!.Dismiss();
@@ -137,7 +148,8 @@ public partial class App : Application
 
     private void CommitSelection(int slot)
     {
-        if (!_isShown) return;
+        if (!_isShown)
+            return;
         _isShown = false;
         _hook!.WheelActive = false;
 
@@ -156,11 +168,14 @@ public partial class App : Application
     private void ScheduleReWarm()
     {
         // Run at background priority so the dismiss render completes first.
-        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () =>
-        {
-            _tracker!.Refresh();
-            _wheel!.PreWarm(_tracker);
-        });
+        Dispatcher.BeginInvoke(
+            System.Windows.Threading.DispatcherPriority.Background,
+            () =>
+            {
+                _tracker!.Refresh();
+                _wheel!.PreWarm(_tracker);
+            }
+        );
     }
 
     protected override void OnExit(ExitEventArgs e)

@@ -17,7 +17,8 @@ public partial class WheelWindow : Window
     private const double SliceSpanDeg = WheelGeometry.SliceSpanDeg;
 
     // Geometry (computed on show, relative to window origin)
-    private double _cx, _cy;
+    private double _cx,
+        _cy;
     private double _innerRadius;
     private double _outerRadius;
 
@@ -40,7 +41,7 @@ public partial class WheelWindow : Window
 
     // Interaction state
     private int _hoverSlot = -1;
-    private int _defaultSlot = -1;  // keyboard pre-selection; used when mouse is in hub
+    private int _defaultSlot = -1; // keyboard pre-selection; used when mouse is in hub
     private int _dragStartSlot = -1;
     private int _dragStartOverflow = -1;
     private Point _dragStartPoint;
@@ -89,14 +90,23 @@ public partial class WheelWindow : Window
         // Start as non-activating, tool window, and fully click-through (transparent to input).
         // WS_EX_TRANSPARENT is removed in Present() and re-added in Dismiss().
         int ex = NativeMethods.GetWindowLongPtr(_hwnd, NativeMethods.GWL_EXSTYLE);
-        NativeMethods.SetWindowLong(_hwnd, NativeMethods.GWL_EXSTYLE,
-            ex | NativeMethods.WS_EX_NOACTIVATE | NativeMethods.WS_EX_TOOLWINDOW
-               | NativeMethods.WS_EX_TRANSPARENT);
+        NativeMethods.SetWindowLong(
+            _hwnd,
+            NativeMethods.GWL_EXSTYLE,
+            ex
+                | NativeMethods.WS_EX_NOACTIVATE
+                | NativeMethods.WS_EX_TOOLWINDOW
+                | NativeMethods.WS_EX_TRANSPARENT
+        );
 
         // Disable DWM transitions before the window is ever shown to prevent blink.
         int disabled = 1;
-        NativeMethods.DwmSetWindowAttribute(_hwnd, NativeMethods.DWMWA_TRANSITIONS_FORCEDISABLED,
-            ref disabled, sizeof(int));
+        NativeMethods.DwmSetWindowAttribute(
+            _hwnd,
+            NativeMethods.DWMWA_TRANSITIONS_FORCEDISABLED,
+            ref disabled,
+            sizeof(int)
+        );
     }
 
     private void OnClosed(object? sender, EventArgs e)
@@ -118,13 +128,16 @@ public partial class WheelWindow : Window
         EnsureLayout(tracker);
 
         int ex = NativeMethods.GetWindowLongPtr(_hwnd, NativeMethods.GWL_EXSTYLE);
-        NativeMethods.SetWindowLong(_hwnd, NativeMethods.GWL_EXSTYLE,
-            ex & ~NativeMethods.WS_EX_TRANSPARENT);
+        NativeMethods.SetWindowLong(
+            _hwnd,
+            NativeMethods.GWL_EXSTYLE,
+            ex & ~NativeMethods.WS_EX_TRANSPARENT
+        );
 
-        ClearThumbnails();   // flush any thumbnails left from a deferred dismiss
+        ClearThumbnails(); // flush any thumbnails left from a deferred dismiss
         NativeMethods.SetCursorPos((int)(_cx + Left), (int)(_cy + Top));
         RootGrid.Opacity = 1;
-        RegisterThumbnails();            // registered invisible
+        RegisterThumbnails(); // registered invisible
         NextRenderFrame(ShowThumbnails); // made visible just before WPF renders opacity=1
     }
 
@@ -141,9 +154,12 @@ public partial class WheelWindow : Window
         _outerRadius = Math.Min(primary.w, primary.h) * 0.40;
         _innerRadius = _outerRadius * 0.18;
 
-        bool monitorChanged = !_hasLayout
-            || _cachedMonitor.cx != primary.cx || _cachedMonitor.cy != primary.cy
-            || _cachedMonitor.w  != primary.w  || _cachedMonitor.h  != primary.h;
+        bool monitorChanged =
+            !_hasLayout
+            || _cachedMonitor.cx != primary.cx
+            || _cachedMonitor.cy != primary.cy
+            || _cachedMonitor.w != primary.w
+            || _cachedMonitor.h != primary.h;
 
         if (monitorChanged)
         {
@@ -170,7 +186,11 @@ public partial class WheelWindow : Window
         {
             if (_visuals[i]?.Highlight is Path h && h.Fill is SolidColorBrush b)
             {
-                if (b.IsFrozen) { b = b.Clone(); h.Fill = b; }
+                if (b.IsFrozen)
+                {
+                    b = b.Clone();
+                    h.Fill = b;
+                }
                 b.BeginAnimation(SolidColorBrush.ColorProperty, null);
                 b.Color = Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF);
             }
@@ -184,7 +204,10 @@ public partial class WheelWindow : Window
             _isDragging = false;
             ReleaseMouseCapture();
             if (_dragStartSlot >= 0 && _visuals[_dragStartSlot]?.ThumbHost is Border dh)
-            { dh.RenderTransform = null; dh.Opacity = 1.0; }
+            {
+                dh.RenderTransform = null;
+                dh.Opacity = 1.0;
+            }
             RemoveDragGhost();
             _dragStartSlot = -1;
             _dragStartOverflow = -1;
@@ -198,8 +221,11 @@ public partial class WheelWindow : Window
 
         // Re-apply click-through so the invisible window doesn't block mouse input.
         int ex = NativeMethods.GetWindowLongPtr(_hwnd, NativeMethods.GWL_EXSTYLE);
-        NativeMethods.SetWindowLong(_hwnd, NativeMethods.GWL_EXSTYLE,
-            ex | NativeMethods.WS_EX_TRANSPARENT);
+        NativeMethods.SetWindowLong(
+            _hwnd,
+            NativeMethods.GWL_EXSTYLE,
+            ex | NativeMethods.WS_EX_TRANSPARENT
+        );
     }
 
     // ---- Build the visual layout ----
@@ -210,19 +236,26 @@ public partial class WheelWindow : Window
         for (int i = 0; i < SlotCount; i++)
         {
             var v = _visuals[i];
-            if (v is null) continue;
+            if (v is null)
+                continue;
 
             if (_tracker?.Slots[i] is TrackedWindow tw)
             {
-                if (v.Title is not null) v.Title.Text = tw.Title;
-                if (v.Icon  is not null) v.Icon.Source = WindowActivator.GetIconForWindow(tw.Handle, tw.ProcessPath);
-                if (v.ThumbHost is not null) v.ThumbHost.Opacity = 1.0;
+                if (v.Title is not null)
+                    v.Title.Text = tw.Title;
+                if (v.Icon is not null)
+                    v.Icon.Source = WindowActivator.GetIconForWindow(tw.Handle, tw.ProcessPath);
+                if (v.ThumbHost is not null)
+                    v.ThumbHost.Opacity = 1.0;
             }
             else
             {
-                if (v.Title is not null) v.Title.Text = "";
-                if (v.Icon  is not null) v.Icon.Source = null;
-                if (v.ThumbHost is not null) v.ThumbHost.Opacity = 0.35;
+                if (v.Title is not null)
+                    v.Title.Text = "";
+                if (v.Icon is not null)
+                    v.Icon.Source = null;
+                if (v.ThumbHost is not null)
+                    v.ThumbHost.Opacity = 0.35;
             }
         }
     }
@@ -249,7 +282,8 @@ public partial class WheelWindow : Window
                     new(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF), 0.0),
                     new(Color.FromArgb(0x18, 0xFF, 0xFF, 0xFF), 0.55),
                     new(Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF), 1.0),
-                })
+                }
+            ),
         };
         Canvas.SetLeft(glow, _cx - glow.Width / 2);
         Canvas.SetTop(glow, _cy - glow.Height / 2);
@@ -263,7 +297,7 @@ public partial class WheelWindow : Window
             IsHitTestVisible = false,
             Fill = new SolidColorBrush(Color.FromArgb(0xCC, 0x0E, 0x10, 0x16)),
             Stroke = new SolidColorBrush(Color.FromArgb(0x55, 0xFF, 0xFF, 0xFF)),
-            StrokeThickness = 1.0
+            StrokeThickness = 1.0,
         };
         Canvas.SetLeft(disc, _cx - _outerRadius);
         Canvas.SetTop(disc, _cy - _outerRadius);
@@ -294,9 +328,10 @@ public partial class WheelWindow : Window
                     new(Color.FromArgb(0x55, 0x20, 0x22, 0x28), 0.0),
                     new(Color.FromArgb(0x33, 0x10, 0x11, 0x14), 0.8),
                     new(Color.FromArgb(0x00, 0x00, 0x00, 0x00), 1.0),
-                }),
+                }
+            ),
             Stroke = new SolidColorBrush(Color.FromArgb(0x66, 0xFF, 0xFF, 0xFF)),
-            StrokeThickness = 0.8
+            StrokeThickness = 0.8,
         };
         Canvas.SetLeft(hub, _cx - _innerRadius);
         Canvas.SetTop(hub, _cy - _innerRadius);
@@ -304,10 +339,17 @@ public partial class WheelWindow : Window
     }
 
     private static double SliceBoundaryAngleDeg(int i) => WheelGeometry.SliceBoundaryAngleDeg(i);
-    private static double SliceCenterAngleDeg(int i)   => WheelGeometry.SliceCenterAngleDeg(i);
 
-    public int PointToSlot(Point p, bool requireInBounds = true)
-        => WheelGeometry.PointToSlot(p.X - _cx, p.Y - _cy, _innerRadius, _outerRadius, requireInBounds);
+    private static double SliceCenterAngleDeg(int i) => WheelGeometry.SliceCenterAngleDeg(i);
+
+    public int PointToSlot(Point p, bool requireInBounds = true) =>
+        WheelGeometry.PointToSlot(
+            p.X - _cx,
+            p.Y - _cy,
+            _innerRadius,
+            _outerRadius,
+            requireInBounds
+        );
 
     // ---- Slice construction ----
     private void BuildSlice(int i)
@@ -341,7 +383,11 @@ public partial class WheelWindow : Window
         // Fit a 16:9 rect inside those bounds.
         double thumbW = Math.Min(maxChord * 0.92, radialDepth * 16.0 / 9.0);
         double thumbH = thumbW * 9.0 / 16.0;
-        if (thumbH > radialDepth) { thumbH = radialDepth; thumbW = thumbH * 16.0 / 9.0; }
+        if (thumbH > radialDepth)
+        {
+            thumbH = radialDepth;
+            thumbW = thumbH * 16.0 / 9.0;
+        }
 
         // We rotate the thumbnail so its "up" points towards the wheel's outer rim.
         // For DWM thumbnails, we can't actually rotate (the compositor paints axis-aligned).
@@ -351,10 +397,10 @@ public partial class WheelWindow : Window
             Width = thumbW,
             Height = thumbH,
             CornerRadius = new CornerRadius(10),
-            Background = new SolidColorBrush(Color.FromArgb(0x55, 0x0A, 0x0D, 0x12)),   // placeholder under the thumbnail
+            Background = new SolidColorBrush(Color.FromArgb(0x55, 0x0A, 0x0D, 0x12)), // placeholder under the thumbnail
             BorderBrush = new SolidColorBrush(Color.FromArgb(0x44, 0xFF, 0xFF, 0xFF)),
             BorderThickness = new Thickness(1),
-            IsHitTestVisible = false
+            IsHitTestVisible = false,
         };
         Canvas.SetLeft(thumbHost, thumbCx - thumbW / 2);
         Canvas.SetTop(thumbHost, thumbCy - thumbH / 2);
@@ -366,8 +412,8 @@ public partial class WheelWindow : Window
         var highlight = new Path
         {
             Data = BuildSliceGeometry(i, _innerRadius, _outerRadius),
-            Fill = new SolidColorBrush(Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF)),   // transparent by default
-            IsHitTestVisible = false
+            Fill = new SolidColorBrush(Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF)), // transparent by default
+            IsHitTestVisible = false,
         };
         WheelCanvas.Children.Add(highlight);
         v.Highlight = highlight;
@@ -377,7 +423,7 @@ public partial class WheelWindow : Window
         {
             Width = 34,
             Height = 34,
-            IsHitTestVisible = false
+            IsHitTestVisible = false,
         };
         // Place just outside the hub along the slice's center ray.
         double iconR = _innerRadius + 26;
@@ -398,12 +444,10 @@ public partial class WheelWindow : Window
             Width = thumbW,
             TextAlignment = TextAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
-            IsHitTestVisible = false
+            IsHitTestVisible = false,
         };
         bool textAbove = (i == 0 || i == 1 || i == 7);
-        double ty = textAbove
-            ? thumbCy - thumbH / 2 - 32
-            : thumbCy + thumbH / 2 + 12;
+        double ty = textAbove ? thumbCy - thumbH / 2 - 32 : thumbCy + thumbH / 2 + 12;
         Canvas.SetLeft(title, thumbCx - thumbW / 2);
         Canvas.SetTop(title, ty);
         WheelCanvas.Children.Add(title);
@@ -442,9 +486,20 @@ public partial class WheelWindow : Window
 
         var fig = new PathFigure { StartPoint = p0, IsClosed = true };
         fig.Segments.Add(new LineSegment(p1, false));
-        fig.Segments.Add(new ArcSegment(p2, new Size(rOut, rOut), 0, isLarge, SweepDirection.Clockwise, false));
+        fig.Segments.Add(
+            new ArcSegment(p2, new Size(rOut, rOut), 0, isLarge, SweepDirection.Clockwise, false)
+        );
         fig.Segments.Add(new LineSegment(p3, false));
-        fig.Segments.Add(new ArcSegment(p0, new Size(rIn, rIn), 0, isLarge, SweepDirection.Counterclockwise, false));
+        fig.Segments.Add(
+            new ArcSegment(
+                p0,
+                new Size(rIn, rIn),
+                0,
+                isLarge,
+                SweepDirection.Counterclockwise,
+                false
+            )
+        );
 
         var geo = new PathGeometry();
         geo.Figures.Add(fig);
@@ -459,16 +514,18 @@ public partial class WheelWindow : Window
     {
         double a = angleDeg * Math.PI / 180.0;
         var start = new Point(_cx + Math.Cos(a) * _innerRadius, _cy + Math.Sin(a) * _innerRadius);
-        var end   = new Point(_cx + Math.Cos(a) * _outerRadius, _cy + Math.Sin(a) * _outerRadius);
+        var end = new Point(_cx + Math.Cos(a) * _outerRadius, _cy + Math.Sin(a) * _outerRadius);
 
         var line = new Line
         {
-            X1 = start.X, Y1 = start.Y,
-            X2 = end.X,   Y2 = end.Y,
+            X1 = start.X,
+            Y1 = start.Y,
+            X2 = end.X,
+            Y2 = end.Y,
             StrokeThickness = 1.0,
             IsHitTestVisible = false,
             StrokeStartLineCap = PenLineCap.Round,
-            StrokeEndLineCap = PenLineCap.Round
+            StrokeEndLineCap = PenLineCap.Round,
         };
 
         // Gradient along the divider: opaque near hub, fading to zero at the rim.
@@ -476,7 +533,7 @@ public partial class WheelWindow : Window
         {
             StartPoint = new Point(0, 0),
             EndPoint = new Point(1, 0),
-            MappingMode = BrushMappingMode.RelativeToBoundingBox
+            MappingMode = BrushMappingMode.RelativeToBoundingBox,
         };
         brush.GradientStops.Add(new GradientStop(Color.FromArgb(0x88, 0xFF, 0xFF, 0xFF), 0.0));
         brush.GradientStops.Add(new GradientStop(Color.FromArgb(0x55, 0xFF, 0xFF, 0xFF), 0.35));
@@ -490,18 +547,20 @@ public partial class WheelWindow : Window
     // ---- DWM Thumbnails ----
     private void RegisterThumbnails()
     {
-        if (_tracker is null) return;
+        if (_tracker is null)
+            return;
 
         for (int i = 0; i < SlotCount; i++)
         {
             var slot = _tracker.Slots[i];
             var host = _visuals[i]?.ThumbHost;
             var rect = _visuals[i]?.ThumbRect ?? Rect.Empty;
-            if (slot is null || host is null || rect.IsEmpty) continue;
+            if (slot is null || host is null || rect.IsEmpty)
+                continue;
 
             // DwmRegisterThumbnail returns HRESULT; 0 == S_OK (success).
             if (NativeMethods.DwmRegisterThumbnail(_hwnd, slot.Handle, out IntPtr thumb) != 0)
-                continue;     // non-zero = failure
+                continue; // non-zero = failure
             _thumbs[i] = thumb;
 
             // Convert logical rect to device pixels.
@@ -511,21 +570,22 @@ public partial class WheelWindow : Window
 
             var props = new NativeMethods.DWM_THUMBNAIL_PROPERTIES
             {
-                dwFlags = NativeMethods.DWM_TNP_RECTDESTINATION
-                        | NativeMethods.DWM_TNP_VISIBLE
-                        | NativeMethods.DWM_TNP_OPACITY
-                        | NativeMethods.DWM_TNP_SOURCECLIENTAREAONLY,
+                dwFlags =
+                    NativeMethods.DWM_TNP_RECTDESTINATION
+                    | NativeMethods.DWM_TNP_VISIBLE
+                    | NativeMethods.DWM_TNP_OPACITY
+                    | NativeMethods.DWM_TNP_SOURCECLIENTAREAONLY,
                 rcDestination = new NativeMethods.RECT
                 {
                     // Inset by 2 device pixels so the host border shows a clean rim.
-                    Left   = (int)Math.Round((rect.X + 2) * scaleX),
-                    Top    = (int)Math.Round((rect.Y + 2) * scaleY),
-                    Right  = (int)Math.Round((rect.X + rect.Width - 2) * scaleX),
+                    Left = (int)Math.Round((rect.X + 2) * scaleX),
+                    Top = (int)Math.Round((rect.Y + 2) * scaleY),
+                    Right = (int)Math.Round((rect.X + rect.Width - 2) * scaleX),
                     Bottom = (int)Math.Round((rect.Y + rect.Height - 2) * scaleY),
                 },
                 opacity = 235,
                 fVisible = false,
-                fSourceClientAreaOnly = false
+                fSourceClientAreaOnly = false,
             };
             NativeMethods.DwmUpdateThumbnailProperties(thumb, ref props);
         }
@@ -535,11 +595,12 @@ public partial class WheelWindow : Window
     {
         for (int i = 0; i < SlotCount; i++)
         {
-            if (_thumbs[i] == IntPtr.Zero) continue;
+            if (_thumbs[i] == IntPtr.Zero)
+                continue;
             var props = new NativeMethods.DWM_THUMBNAIL_PROPERTIES
             {
                 dwFlags = NativeMethods.DWM_TNP_VISIBLE,
-                fVisible = true
+                fVisible = true,
             };
             NativeMethods.DwmUpdateThumbnailProperties(_thumbs[i], ref props);
         }
@@ -583,14 +644,16 @@ public partial class WheelWindow : Window
 
         if (!_overflowPanelRect.IsEmpty && _overflowPanelRect.Contains(p))
         {
-            if (_hoverSlot >= 0) UpdateHover(-1);
+            if (_hoverSlot >= 0)
+                UpdateHover(-1);
         }
         else
         {
             // requireInBounds=false: snap to the nearest slice even outside the outer radius.
             // Only the hub (inner radius) returns -1 to fall back to keyboard pre-selection.
             int slot = PointToSlot(p, requireInBounds: false);
-            if (slot != _hoverSlot) UpdateHover(slot);
+            if (slot != _hoverSlot)
+                UpdateHover(slot);
         }
     }
 
@@ -605,7 +668,8 @@ public partial class WheelWindow : Window
         {
             if (_visuals[prevActive] is SliceVisual old)
             {
-                if (old.Highlight is not null) AnimateHighlight(old.Highlight, 0x00);
+                if (old.Highlight is not null)
+                    AnimateHighlight(old.Highlight, 0x00);
                 if (old.ThumbHost is not null && prevActive != _dragStartSlot)
                     old.ThumbHost.RenderTransform = null;
             }
@@ -617,14 +681,19 @@ public partial class WheelWindow : Window
 
     private static void AnimateHighlight(Shape target, byte toAlpha)
     {
-        if (target.Fill is not SolidColorBrush b) return;
+        if (target.Fill is not SolidColorBrush b)
+            return;
         // Make sure the brush is writable.
-        if (b.IsFrozen) { b = b.Clone(); target.Fill = b; }
+        if (b.IsFrozen)
+        {
+            b = b.Clone();
+            target.Fill = b;
+        }
         var anim = new ColorAnimation
         {
             To = Color.FromArgb(toAlpha, 0xFF, 0xFF, 0xFF),
             Duration = TimeSpan.FromMilliseconds(120),
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
         };
         b.BeginAnimation(SolidColorBrush.ColorProperty, anim);
     }
@@ -648,7 +717,8 @@ public partial class WheelWindow : Window
         }
 
         int slot = PointToSlot(p);
-        if (slot < 0 || _tracker is null || _tracker.Slots[slot] is null) return;
+        if (slot < 0 || _tracker is null || _tracker.Slots[slot] is null)
+            return;
 
         _dragStartSlot = slot;
         _dragStartOverflow = -1;
@@ -659,7 +729,8 @@ public partial class WheelWindow : Window
 
     private void OnMouseUp(object sender, MouseButtonEventArgs e)
     {
-        if (!_isDragging) return;
+        if (!_isDragging)
+            return;
         _isDragging = false;
         ReleaseMouseCapture();
 
@@ -671,7 +742,11 @@ public partial class WheelWindow : Window
             int start = _dragStartSlot;
             _dragStartSlot = -1;
 
-            if (_visuals[start]?.ThumbHost is Border h) { h.RenderTransform = null; h.Opacity = 1.0; }
+            if (_visuals[start]?.ThumbHost is Border h)
+            {
+                h.RenderTransform = null;
+                h.Opacity = 1.0;
+            }
 
             if (moved && _tracker is not null)
             {
@@ -698,7 +773,7 @@ public partial class WheelWindow : Window
             if (moved && _tracker is not null)
             {
                 int dropSlot = PointToSlot(p);
-                int dropOv   = HitTestOverflowRow(p);
+                int dropOv = HitTestOverflowRow(p);
 
                 if (dropSlot >= 0)
                 {
@@ -730,23 +805,31 @@ public partial class WheelWindow : Window
         }
 
         var v = _visuals[i];
-        if (v is null || _tracker is null) return;
+        if (v is null || _tracker is null)
+            return;
         var tw = _tracker.Slots[i];
 
         if (tw is null)
         {
-            if (v.Title is not null) v.Title.Text = "";
-            if (v.Icon is not null) v.Icon.Source = null;
-            if (v.ThumbHost is not null) v.ThumbHost.Opacity = 0.35;
+            if (v.Title is not null)
+                v.Title.Text = "";
+            if (v.Icon is not null)
+                v.Icon.Source = null;
+            if (v.ThumbHost is not null)
+                v.ThumbHost.Opacity = 0.35;
             return;
         }
 
-        if (v.Title is not null) v.Title.Text = tw.Title;
-        if (v.Icon is not null) v.Icon.Source = WindowActivator.GetIconForWindow(tw.Handle, tw.ProcessPath);
-        if (v.ThumbHost is not null) v.ThumbHost.Opacity = 1.0;
+        if (v.Title is not null)
+            v.Title.Text = tw.Title;
+        if (v.Icon is not null)
+            v.Icon.Source = WindowActivator.GetIconForWindow(tw.Handle, tw.ProcessPath);
+        if (v.ThumbHost is not null)
+            v.ThumbHost.Opacity = 1.0;
 
         // Re-register thumbnail in the same rect.
-        if (NativeMethods.DwmRegisterThumbnail(_hwnd, tw.Handle, out IntPtr thumb) != 0) return;
+        if (NativeMethods.DwmRegisterThumbnail(_hwnd, tw.Handle, out IntPtr thumb) != 0)
+            return;
         _thumbs[i] = thumb;
 
         var rect = v.ThumbRect;
@@ -756,18 +839,21 @@ public partial class WheelWindow : Window
 
         var props = new NativeMethods.DWM_THUMBNAIL_PROPERTIES
         {
-            dwFlags = NativeMethods.DWM_TNP_RECTDESTINATION | NativeMethods.DWM_TNP_VISIBLE
-                    | NativeMethods.DWM_TNP_OPACITY | NativeMethods.DWM_TNP_SOURCECLIENTAREAONLY,
+            dwFlags =
+                NativeMethods.DWM_TNP_RECTDESTINATION
+                | NativeMethods.DWM_TNP_VISIBLE
+                | NativeMethods.DWM_TNP_OPACITY
+                | NativeMethods.DWM_TNP_SOURCECLIENTAREAONLY,
             rcDestination = new NativeMethods.RECT
             {
-                Left   = (int)Math.Round((rect.X + 2) * scaleX),
-                Top    = (int)Math.Round((rect.Y + 2) * scaleY),
-                Right  = (int)Math.Round((rect.X + rect.Width - 2) * scaleX),
-                Bottom = (int)Math.Round((rect.Y + rect.Height - 2) * scaleY)
+                Left = (int)Math.Round((rect.X + 2) * scaleX),
+                Top = (int)Math.Round((rect.Y + 2) * scaleY),
+                Right = (int)Math.Round((rect.X + rect.Width - 2) * scaleX),
+                Bottom = (int)Math.Round((rect.Y + rect.Height - 2) * scaleY),
             },
             opacity = 235,
             fVisible = true,
-            fSourceClientAreaOnly = false
+            fSourceClientAreaOnly = false,
         };
         NativeMethods.DwmUpdateThumbnailProperties(thumb, ref props);
     }
@@ -775,7 +861,11 @@ public partial class WheelWindow : Window
     private void NextRenderFrame(Action callback)
     {
         EventHandler? handler = null;
-        handler = (_, _) => { CompositionTarget.Rendering -= handler; callback(); };
+        handler = (_, _) =>
+        {
+            CompositionTarget.Rendering -= handler;
+            callback();
+        };
         CompositionTarget.Rendering += handler;
     }
 
@@ -783,9 +873,11 @@ public partial class WheelWindow : Window
 
     private int HitTestOverflowRow(Point p)
     {
-        if (_overflowPanelRect.IsEmpty || !_overflowPanelRect.Contains(p)) return -1;
+        if (_overflowPanelRect.IsEmpty || !_overflowPanelRect.Contains(p))
+            return -1;
         int idx = (int)((p.Y - _overflowPanelRect.Top) / 46);
-        if (_tracker is null || idx < 0 || idx >= _tracker.Overflow.Count) return -1;
+        if (_tracker is null || idx < 0 || idx >= _tracker.Overflow.Count)
+            return -1;
         return idx;
     }
 
@@ -799,11 +891,12 @@ public partial class WheelWindow : Window
     {
         var icon = new Image
         {
-            Width = 22, Height = 22,
+            Width = 22,
+            Height = 22,
             Source = WindowActivator.GetIconForWindow(tw.Handle, tw.ProcessPath),
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(8, 0, 6, 0),
-            IsHitTestVisible = false
+            IsHitTestVisible = false,
         };
         var title = new TextBlock
         {
@@ -816,7 +909,7 @@ public partial class WheelWindow : Window
             MaxWidth = 150,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 0, 8, 0),
-            IsHitTestVisible = false
+            IsHitTestVisible = false,
         };
         var sp = new StackPanel { Orientation = Orientation.Horizontal, IsHitTestVisible = false };
         sp.Children.Add(icon);
@@ -830,7 +923,7 @@ public partial class WheelWindow : Window
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(0, 5, 0, 5),
             IsHitTestVisible = false,
-            Opacity = 0.9
+            Opacity = 0.9,
         };
         _dragGhostTransform = new TranslateTransform(p.X + 14, p.Y - 18);
         _dragGhost.RenderTransform = _dragGhostTransform;
@@ -839,7 +932,8 @@ public partial class WheelWindow : Window
 
     private void UpdateDragGhost(Point p)
     {
-        if (_dragGhostTransform is null) return;
+        if (_dragGhostTransform is null)
+            return;
         _dragGhostTransform.X = p.X + 14;
         _dragGhostTransform.Y = p.Y - 18;
     }
@@ -866,7 +960,8 @@ public partial class WheelWindow : Window
 
     private void BuildOverflowPanel()
     {
-        if (_tracker is null || _tracker.Overflow.Count == 0) return;
+        if (_tracker is null || _tracker.Overflow.Count == 0)
+            return;
 
         const double rowH = 46;
         const double panelW = 220;
@@ -887,7 +982,7 @@ public partial class WheelWindow : Window
             Background = new SolidColorBrush(Color.FromArgb(0xCC, 0x0E, 0x10, 0x16)),
             BorderBrush = new SolidColorBrush(Color.FromArgb(0x55, 0xFF, 0xFF, 0xFF)),
             BorderThickness = new Thickness(1),
-            IsHitTestVisible = false
+            IsHitTestVisible = false,
         };
         Canvas.SetLeft(bg, panelX);
         Canvas.SetTop(bg, panelY);
@@ -902,11 +997,12 @@ public partial class WheelWindow : Window
 
             var icon = new Image
             {
-                Width = 28, Height = 28,
+                Width = 28,
+                Height = 28,
                 Source = WindowActivator.GetIconForWindow(tw.Handle, tw.ProcessPath),
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(10, 0, 8, 0),
-                IsHitTestVisible = false
+                IsHitTestVisible = false,
             };
 
             var titleText = new TextBlock
@@ -919,7 +1015,7 @@ public partial class WheelWindow : Window
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 10, 0),
-                IsHitTestVisible = false
+                IsHitTestVisible = false,
             };
 
             var dock = new DockPanel { LastChildFill = true, IsHitTestVisible = false };
@@ -928,10 +1024,11 @@ public partial class WheelWindow : Window
             dock.Children.Add(titleText);
 
             var rowBg = new SolidColorBrush(Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF));
-            var cr = count == 1 ? new CornerRadius(10)
-                   : i == 0     ? new CornerRadius(10, 10, 2, 2)
-                   : i == count - 1 ? new CornerRadius(2, 2, 10, 10)
-                   : new CornerRadius(2);
+            var cr =
+                count == 1 ? new CornerRadius(10)
+                : i == 0 ? new CornerRadius(10, 10, 2, 2)
+                : i == count - 1 ? new CornerRadius(2, 2, 10, 10)
+                : new CornerRadius(2);
 
             var row = new Border
             {
@@ -940,19 +1037,22 @@ public partial class WheelWindow : Window
                 CornerRadius = cr,
                 Background = rowBg,
                 Child = dock,
-                Cursor = Cursors.Hand
+                Cursor = Cursors.Hand,
             };
 
             row.MouseEnter += (_, _) =>
             {
-                if (_isDragging) return;
-                if (_hoverSlot >= 0) UpdateHover(-1);
+                if (_isDragging)
+                    return;
+                if (_hoverSlot >= 0)
+                    UpdateHover(-1);
                 rowBg.Color = Color.FromArgb(0x28, 0xFF, 0xFF, 0xFF);
                 _overflowHoverIndex = idx;
             };
             row.MouseLeave += (_, _) =>
             {
-                if (_isDragging) return;
+                if (_isDragging)
+                    return;
                 if (_overflowHoverIndex == idx)
                 {
                     rowBg.Color = Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF);
@@ -970,7 +1070,14 @@ public partial class WheelWindow : Window
     }
 
     // ---- Monitor math ----
-    private readonly record struct MonitorInfo(double cx, double cy, double w, double h, double left, double top);
+    private readonly record struct MonitorInfo(
+        double cx,
+        double cy,
+        double w,
+        double h,
+        double left,
+        double top
+    );
 
     private static Point GetCursorScreenPoint()
     {
@@ -985,16 +1092,31 @@ public partial class WheelWindow : Window
         {
             var b = screen.Bounds;
             if (p.X >= b.Left && p.X < b.Right && p.Y >= b.Top && p.Y < b.Bottom)
-                return new MonitorInfo(b.Left + b.Width / 2.0, b.Top + b.Height / 2.0, b.Width, b.Height, b.Left, b.Top);
+                return new MonitorInfo(
+                    b.Left + b.Width / 2.0,
+                    b.Top + b.Height / 2.0,
+                    b.Width,
+                    b.Height,
+                    b.Left,
+                    b.Top
+                );
         }
         var pri = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
-        return new MonitorInfo(pri.Left + pri.Width / 2.0, pri.Top + pri.Height / 2.0, pri.Width, pri.Height, pri.Left, pri.Top);
+        return new MonitorInfo(
+            pri.Left + pri.Width / 2.0,
+            pri.Top + pri.Height / 2.0,
+            pri.Width,
+            pri.Height,
+            pri.Left,
+            pri.Top
+        );
     }
 
     /// <summary>Advance the keyboard pre-selection to the next occupied slot (Tab / Alt+Tab while wheel open).</summary>
     public void AdvanceSelection(int dir)
     {
-        if (_tracker is null) return;
+        if (_tracker is null)
+            return;
         int start = _defaultSlot < 0 ? 0 : _defaultSlot;
         for (int step = 1; step <= SlotCount; step++)
         {
@@ -1007,7 +1129,11 @@ public partial class WheelWindow : Window
                 // Only update visual if the mouse isn't already hovering a slice.
                 if (_hoverSlot < 0)
                 {
-                    if (prevDefault >= 0 && prevDefault != next && _visuals[prevDefault]?.Highlight is { } oldH)
+                    if (
+                        prevDefault >= 0
+                        && prevDefault != next
+                        && _visuals[prevDefault]?.Highlight is { } oldH
+                    )
                         AnimateHighlight(oldH, 0x00);
                     if (_visuals[next]?.Highlight is { } newH)
                         AnimateHighlight(newH, 0x28);
@@ -1024,7 +1150,11 @@ public partial class WheelWindow : Window
     /// </summary>
     public void PreSelectHandle(IntPtr handle)
     {
-        if (handle == IntPtr.Zero || _tracker is null) { AdvanceSelection(1); return; }
+        if (handle == IntPtr.Zero || _tracker is null)
+        {
+            AdvanceSelection(1);
+            return;
+        }
 
         for (int i = 0; i < SlotCount; i++)
         {

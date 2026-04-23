@@ -1,5 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
@@ -17,6 +16,4 @@
     <!-- Exclude the test sub-project from the main project's CS glob -->
     <Compile Remove="WheelSwitcher.Tests\**" />
   </ItemGroup>
-
 </Project>
-

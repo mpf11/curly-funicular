@@ -1,6 +1,6 @@
 using System;
-using Xunit;
 using WheelSwitcher;
+using Xunit;
 
 namespace WheelSwitcher.Tests;
 
@@ -67,7 +67,7 @@ public class WindowTrackerTests
     {
         var t = MakeTracker();
         var wheel = MakeWindow(10, "Wheel");
-        var over  = MakeWindow(20, "Over");
+        var over = MakeWindow(20, "Over");
         t.ForceSlot(2, wheel);
         t.ForceOverflow(over);
 

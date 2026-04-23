@@ -14,7 +14,7 @@ public sealed class TrackedWindow
     public IntPtr Handle { get; init; }
     public string Title { get; set; } = "";
     public string ProcessPath { get; set; } = "";
-    public int Slot { get; set; }         // 0..7
+    public int Slot { get; set; } // 0..7
     public DateTime LastSeen { get; set; }
 
     public override string ToString() => $"[{Slot}] {Title}";
@@ -62,7 +62,8 @@ public sealed class WindowTracker
         for (int i = 0; i < MaxSlots; i++)
         {
             var s = _slots[i];
-            if (s is null) continue;
+            if (s is null)
+                continue;
             if (!live.Any(w => w.Handle == s.Handle))
             {
                 _handleToSlot.Remove(s.Handle);
@@ -86,7 +87,8 @@ public sealed class WindowTracker
         _overflow.Clear();
         foreach (var w in live)
         {
-            if (_handleToSlot.ContainsKey(w.Handle)) continue;
+            if (_handleToSlot.ContainsKey(w.Handle))
+                continue;
 
             int free = FindFreeSlot();
             if (free >= 0)
@@ -105,26 +107,39 @@ public sealed class WindowTracker
     private int FindFreeSlot()
     {
         for (int i = 0; i < MaxSlots; i++)
-            if (_slots[i] is null) return i;
+            if (_slots[i] is null)
+                return i;
         return -1;
     }
 
     /// <summary>Swap two slot contents (used for drag-to-reorder).</summary>
     public void SwapSlots(int a, int b)
     {
-        if (a == b) return;
-        if (a < 0 || a >= MaxSlots || b < 0 || b >= MaxSlots) return;
+        if (a == b)
+            return;
+        if (a < 0 || a >= MaxSlots || b < 0 || b >= MaxSlots)
+            return;
 
         (_slots[a], _slots[b]) = (_slots[b], _slots[a]);
-        if (_slots[a] is not null) { _slots[a]!.Slot = a; _handleToSlot[_slots[a]!.Handle] = a; }
-        if (_slots[b] is not null) { _slots[b]!.Slot = b; _handleToSlot[_slots[b]!.Handle] = b; }
+        if (_slots[a] is not null)
+        {
+            _slots[a]!.Slot = a;
+            _handleToSlot[_slots[a]!.Handle] = a;
+        }
+        if (_slots[b] is not null)
+        {
+            _slots[b]!.Slot = b;
+            _handleToSlot[_slots[b]!.Handle] = b;
+        }
     }
 
     /// <summary>Swap a wheel slot with an overflow entry.</summary>
     public void SwapSlotWithOverflow(int slotIndex, int overflowIndex)
     {
-        if (slotIndex < 0 || slotIndex >= MaxSlots) return;
-        if (overflowIndex < 0 || overflowIndex >= _overflow.Count) return;
+        if (slotIndex < 0 || slotIndex >= MaxSlots)
+            return;
+        if (overflowIndex < 0 || overflowIndex >= _overflow.Count)
+            return;
 
         var slotWindow = _slots[slotIndex];
         var overflowWindow = _overflow[overflowIndex];
@@ -148,17 +163,24 @@ public sealed class WindowTracker
     /// <summary>Reorder two overflow entries.</summary>
     public void SwapOverflowItems(int a, int b)
     {
-        if (a == b) return;
-        if (a < 0 || a >= _overflow.Count || b < 0 || b >= _overflow.Count) return;
+        if (a == b)
+            return;
+        if (a < 0 || a >= _overflow.Count || b < 0 || b >= _overflow.Count)
+            return;
         (_overflow[a], _overflow[b]) = (_overflow[b], _overflow[a]);
     }
 
     // ---- Test helpers ----
     internal void ForceSlot(int index, TrackedWindow? window)
     {
-        if (_slots[index] is TrackedWindow old) _handleToSlot.Remove(old.Handle);
+        if (_slots[index] is TrackedWindow old)
+            _handleToSlot.Remove(old.Handle);
         _slots[index] = window;
-        if (window is not null) { window.Slot = index; _handleToSlot[window.Handle] = index; }
+        if (window is not null)
+        {
+            window.Slot = index;
+            _handleToSlot[window.Handle] = index;
+        }
     }
 
     internal void ForceOverflow(TrackedWindow window) => _overflow.Add(window);
@@ -169,24 +191,33 @@ public sealed class WindowTracker
         var result = new List<TrackedWindow>();
         IntPtr shell = NativeMethods.GetShellWindow();
 
-        NativeMethods.EnumWindows((hWnd, _) =>
-        {
-            if (hWnd == shell) return true;
-            if (hWnd == _selfWindow) return true;
-            if (!IsAltTabEligible(hWnd)) return true;
-
-            var title = GetWindowTitle(hWnd);
-            if (string.IsNullOrWhiteSpace(title)) return true;
-
-            result.Add(new TrackedWindow
+        NativeMethods.EnumWindows(
+            (hWnd, _) =>
             {
-                Handle = hWnd,
-                Title = title,
-                ProcessPath = GetProcessPath(hWnd),
-                LastSeen = DateTime.UtcNow
-            });
-            return true;
-        }, IntPtr.Zero);
+                if (hWnd == shell)
+                    return true;
+                if (hWnd == _selfWindow)
+                    return true;
+                if (!IsAltTabEligible(hWnd))
+                    return true;
+
+                var title = GetWindowTitle(hWnd);
+                if (string.IsNullOrWhiteSpace(title))
+                    return true;
+
+                result.Add(
+                    new TrackedWindow
+                    {
+                        Handle = hWnd,
+                        Title = title,
+                        ProcessPath = GetProcessPath(hWnd),
+                        LastSeen = DateTime.UtcNow,
+                    }
+                );
+                return true;
+            },
+            IntPtr.Zero
+        );
 
         return result;
     }
@@ -198,7 +229,8 @@ public sealed class WindowTracker
     /// </summary>
     private static bool IsAltTabEligible(IntPtr hWnd)
     {
-        if (!NativeMethods.IsWindowVisible(hWnd)) return false;
+        if (!NativeMethods.IsWindowVisible(hWnd))
+            return false;
 
         // Skip owned windows (like dialogs whose owner is already listed)... actually we DO want popups,
         // but only if they are top-level. Matching real Alt+Tab: show windows where the root owner is itself.
@@ -208,19 +240,31 @@ public sealed class WindowTracker
         bool isTool = (exStyle & NativeMethods.WS_EX_TOOLWINDOW) != 0;
         bool isAppWindow = (exStyle & NativeMethods.WS_EX_APPWINDOW) != 0;
 
-        if (owner != IntPtr.Zero && !isAppWindow) return false;
-        if (isTool && !isAppWindow) return false;
+        if (owner != IntPtr.Zero && !isAppWindow)
+            return false;
+        if (isTool && !isAppWindow)
+            return false;
 
         // Cloaked check - suspended UWP apps and apps on other virtual desktops report cloaked != 0.
-        if (NativeMethods.DwmGetWindowAttribute(hWnd, NativeMethods.DWMWA_CLOAKED, out int cloaked, sizeof(int)) == 0
-            && cloaked != 0)
+        if (
+            NativeMethods.DwmGetWindowAttribute(
+                hWnd,
+                NativeMethods.DWMWA_CLOAKED,
+                out int cloaked,
+                sizeof(int)
+            ) == 0
+            && cloaked != 0
+        )
             return false;
 
         // Filter out empty-class shell helpers.
         var cls = new StringBuilder(256);
         NativeMethods.GetClassName(hWnd, cls, cls.Capacity);
         string className = cls.ToString();
-        if (className is "Windows.UI.Core.CoreWindow" or "ApplicationFrameWindow" && NativeMethods.IsIconic(hWnd))
+        if (
+            className is "Windows.UI.Core.CoreWindow" or "ApplicationFrameWindow"
+            && NativeMethods.IsIconic(hWnd)
+        )
         {
             // Minimised UWP windows are fine; it's the invisible duplicates we drop via cloaked check above.
         }
@@ -231,7 +275,8 @@ public sealed class WindowTracker
     private static string GetWindowTitle(IntPtr hWnd)
     {
         int len = NativeMethods.GetWindowTextLength(hWnd);
-        if (len <= 0) return "";
+        if (len <= 0)
+            return "";
         var sb = new StringBuilder(len + 1);
         NativeMethods.GetWindowText(hWnd, sb, sb.Capacity);
         return sb.ToString();
@@ -240,9 +285,15 @@ public sealed class WindowTracker
     private static string GetProcessPath(IntPtr hWnd)
     {
         NativeMethods.GetWindowThreadProcessId(hWnd, out uint pid);
-        if (pid == 0) return "";
-        IntPtr h = NativeMethods.OpenProcess(NativeMethods.PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
-        if (h == IntPtr.Zero) return "";
+        if (pid == 0)
+            return "";
+        IntPtr h = NativeMethods.OpenProcess(
+            NativeMethods.PROCESS_QUERY_LIMITED_INFORMATION,
+            false,
+            pid
+        );
+        if (h == IntPtr.Zero)
+            return "";
         try
         {
             var sb = new StringBuilder(1024);
@@ -250,7 +301,10 @@ public sealed class WindowTracker
             if (NativeMethods.QueryFullProcessImageName(h, 0, sb, ref cap))
                 return sb.ToString();
         }
-        finally { NativeMethods.CloseHandle(h); }
+        finally
+        {
+            NativeMethods.CloseHandle(h);
+        }
         return "";
     }
 }

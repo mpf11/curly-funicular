@@ -1,6 +1,6 @@
 using System;
-using Xunit;
 using WheelSwitcher;
+using Xunit;
 
 namespace WheelSwitcher.Tests;
 
@@ -14,14 +14,14 @@ public class WheelGeometryTests
     // Slot layout (12-o'clock = 0, clockwise):
     //   0 = N, 1 = NE, 2 = E, 3 = SE, 4 = S, 5 = SW, 6 = W, 7 = NW
     [Theory]
-    [InlineData(  0, -100, 0)]   // straight up    → slot 0 (N)
-    [InlineData(100,    0, 2)]   // straight right  → slot 2 (E)
-    [InlineData(  0,  100, 4)]   // straight down   → slot 4 (S)
-    [InlineData(-100,   0, 6)]   // straight left   → slot 6 (W)
-    [InlineData( 80,  -80, 1)]   // NE diagonal     → slot 1
-    [InlineData( 80,   80, 3)]   // SE diagonal     → slot 3
-    [InlineData(-80,   80, 5)]   // SW diagonal     → slot 5
-    [InlineData(-80,  -80, 7)]   // NW diagonal     → slot 7
+    [InlineData(0, -100, 0)] // straight up    → slot 0 (N)
+    [InlineData(100, 0, 2)] // straight right  → slot 2 (E)
+    [InlineData(0, 100, 4)] // straight down   → slot 4 (S)
+    [InlineData(-100, 0, 6)] // straight left   → slot 6 (W)
+    [InlineData(80, -80, 1)] // NE diagonal     → slot 1
+    [InlineData(80, 80, 3)] // SE diagonal     → slot 3
+    [InlineData(-80, 80, 5)] // SW diagonal     → slot 5
+    [InlineData(-80, -80, 7)] // NW diagonal     → slot 7
     public void PointToSlot_CardinalAndDiagonal(double dx, double dy, int expected)
     {
         int slot = WheelGeometry.PointToSlot(dx, dy, Inner, Outer, requireInBounds: true);
@@ -54,7 +54,13 @@ public class WheelGeometryTests
     public void PointToSlot_OutsideOuter_LooseMode_ReturnsSlot()
     {
         // Loose mode (hover): even beyond the wheel edge we still get a valid slot.
-        int slot = WheelGeometry.PointToSlot(0, -(Outer + 50), Inner, Outer, requireInBounds: false);
+        int slot = WheelGeometry.PointToSlot(
+            0,
+            -(Outer + 50),
+            Inner,
+            Outer,
+            requireInBounds: false
+        );
         Assert.Equal(0, slot);
     }
 
