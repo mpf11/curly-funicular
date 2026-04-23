@@ -846,7 +846,7 @@ impl WheelState {
                 let _ = SetWindowPos(self.ghost_hwnd, HWND_TOPMOST,
                     0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             }
-            self.draw_drag_ghost(hwnd);
+            self.draw_drag_ghost();
         }
     }
 
@@ -944,7 +944,7 @@ impl WheelState {
         }
     }
 
-    fn draw_drag_ghost(&self, _hwnd: HWND) {
+    fn draw_drag_ghost(&self) {
         let n = (GHOST_DIB_W * GHOST_DIB_H * 4) as usize;
         let stride = GHOST_DIB_W as usize * 4;
 
@@ -1448,7 +1448,7 @@ unsafe extern "system" fn wnd_proc(
                     // Pixel-level ghost: fast enough (~0.5 ms) to process every message.
                     state.drag_cur_x = x;
                     state.drag_cur_y = y;
-                    state.draw_drag_ghost(hwnd);
+                    state.draw_drag_ghost();
                 } else {
                     // Coalesce D2D redraws: skip if a newer move is already queued.
                     let mut peek = MSG::default();

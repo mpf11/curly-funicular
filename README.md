@@ -5,10 +5,10 @@ A Windows Alt+Tab replacement built in Rust. Instead of a flat taskbar strip, it
 ## Features
 
 - **Circular wheel** — up to 8 slots arranged radially, each showing a DWM live thumbnail
-- **Overflow panel** — a scrollable sidebar for windows beyond the 8 slots
-- **Drag-and-drop reordering** — drag any wheel slot to another slot, to the overflow panel, or drag any overflow row onto a wheel slot
+- **Overflow panel** — a sidebar for windows beyond the 8 slots
+- **Drag-and-drop reordering** — drag any wheel slot to another slot or to the overflow panel; drag any overflow row onto a wheel slot; reorder within the overflow panel
+- **Sector selection by angle** — hovering anywhere outside the inner hub (including outside the outer ring) highlights the nearest sector; the hub is a dead zone that falls back to the default selection
 - **Keyboard navigation** — Tab / Shift+Tab to cycle through slots; Esc to cancel; releasing Alt commits the selection
-- **Hover selection** — hovering over a slot or overflow row highlights it for immediate commit on Alt release
 - **Tray icon** — right-click to exit
 
 ## Building and Running
@@ -27,11 +27,11 @@ A global low-level keyboard hook (`keyboard_hook.rs`) intercepts Alt+Tab before 
 
 ### Window Tracking
 
-`window_tracker.rs` enumerates all Alt+Tab-eligible windows (visible, non-tool, non-cloaked) each time the wheel opens. The first 8 go into fixed slots; any extras go into an `overflow` vector. Windows that close are removed; newly opened windows fill free slots. The tracker also caches titles and supports the three swap operations: slot↔slot, slot↔overflow, and overflow↔overflow.
+`window_tracker.rs` enumerates all Alt+Tab-eligible windows (visible, non-tool, non-cloaked) each time the wheel opens. The first 8 fill fixed slots; any extras go into an `overflow` vector. Windows that close are removed; newly opened windows fill free slots. The tracker supports three swap operations: slot↔slot, slot↔overflow, and overflow↔overflow.
 
 ### Rendering
 
-The UI is a transparent, click-through layered window that covers the entire virtual desktop. All drawing goes through a DIB section (GDI device-independent bitmap) backed by a Direct2D DC render target.
+The UI is a transparent layered window that covers the entire virtual desktop. All drawing goes through a DIB section (GDI device-independent bitmap) backed by a Direct2D DC render target.
 
 Each frame (`draw_frame` in `wheel_window.rs`) draws in order:
 
@@ -41,29 +41,35 @@ Each frame (`draw_frame` in `wheel_window.rs`) draws in order:
 4. Selection highlight wedge
 5. Slot divider lines
 6. Central hub circle
-7. Window icons (32×32 px, centered in the hub per slot)
-8. Window title text
+7. Window icons (32×32 px, placed just outside the hub on the radial axis)
+8. Window title text (single line, ellipsis-truncated to thumbnail width)
 9. Overflow panel (if any overflow exists)
 
-DWM thumbnails are registered separately via `DwmRegisterThumbnail` and positioned/sized to match each slot's rectangle. They render behind the D2D overlay at the system level, which is why the placeholder rectangles need to be punched out (left transparent) so thumbnails show through.
+DWM thumbnails are registered separately via `DwmRegisterThumbnail` and positioned to match each slot's rectangle. They render behind the D2D overlay, which is why placeholder rectangles are left transparent so thumbnails show through.
 
 The completed DIB is pushed to the screen with `UpdateLayeredWindow`, giving per-pixel alpha blending with no window chrome.
+
+### Slot Geometry
+
+`wheel_geometry.rs` contains pure, unit-tested math. Slot 0 is at 12 o'clock; the remaining 7 proceed clockwise at 45° each. Thumbnail rectangles are sized so their inner corners stay within their slice's dividers (width is solved from the chord at the inner edge of each thumbnail, not the centre).
+
+`point_to_slot` maps a cursor coordinate to a slot index by polar angle. The inner hub returns `None` (dead zone); any distance beyond the hub — including outside the outer ring — returns the nearest sector.
+
+### Hover Tracking
+
+Because the layered window uses per-pixel alpha for hit-testing, `WM_MOUSEMOVE` is not delivered over the transparent areas outside the wheel disc. A 16 ms `WM_TIMER` fires while the wheel is open, reads `GetCursorPos`, and feeds the position into `on_mouse_move`, bypassing the hit-test limitation entirely.
 
 ### Drag Ghost
 
 Dragging shows a small semi-transparent preview image that follows the cursor. This uses a separate topmost layered window (`ghost_hwnd`) backed by its own 240×100 DIB. On every `WM_MOUSEMOVE` during a drag, only the ghost is redrawn — the main wheel stays static — keeping the drag response at roughly 0.5 ms per frame.
 
-### Slot Geometry
-
-`wheel_geometry.rs` contains pure, unit-tested math. Slot 0 is at 12 o'clock and the remaining 7 proceed clockwise at 45° each. `point_to_slot` converts a cursor coordinate (relative to the wheel center) to a slot index by computing the polar angle and checking whether the radius falls between the inner hub and the outer edge.
-
 ## Code Layout
 
 ```
 src/
-  main.rs              Entry point, message loop, tray icon, single-instance guard
+  main.rs              Entry point, message loop, single-instance guard
   wheel_window.rs      All UI state, rendering, and input handling
-  wheel_geometry.rs    Pure slot math (angle/radius → slot index)
+  wheel_geometry.rs    Pure slot math (angle → slot index)
   window_tracker.rs    Window enumeration, slot and overflow management
   window_activator.rs  Foreground activation (attaches to target thread's input queue)
   keyboard_hook.rs     Global low-level keyboard hook for Alt+Tab interception
@@ -76,7 +82,7 @@ src/
 | Feature area | Used for |
 |---|---|
 | Direct2D | Shape and text rendering |
-| DirectWrite | Font layout and text formatting |
+| DirectWrite | Font layout, single-line text with ellipsis trimming |
 | DWM | Live window thumbnails |
 | GDI | DIB sections, DC management |
 | Win32 UI / Shell | Window messages, tray icon, icon extraction |

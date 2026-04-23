@@ -1,24 +1,17 @@
 use std::collections::HashMap;
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
-use windows::Win32::System::Threading::{
-    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION,
-};
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetShellWindow, GetWindow, GetWindowLongW, GetWindowTextLengthW,
-    GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible, GW_OWNER, GWL_EXSTYLE,
-    WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+    GetWindowTextW, IsWindowVisible, GW_OWNER, GWL_EXSTYLE, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
 };
-use windows::core::PWSTR;
 
 pub const MAX_SLOTS: usize = 8;
 
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub struct TrackedWindow {
     pub hwnd: HWND,
     pub title: String,
-    pub process_path: String,
     pub slot: usize,
 }
 
@@ -159,12 +152,7 @@ impl WindowTracker {
             if title.is_empty() {
                 return BOOL(1);
             }
-            state.result.push(TrackedWindow {
-                hwnd,
-                title,
-                process_path: get_process_path(hwnd),
-                slot: 0,
-            });
+            state.result.push(TrackedWindow { hwnd, title, slot: 0 });
             BOOL(1)
         }
 
@@ -228,28 +216,5 @@ fn get_window_title(hwnd: HWND) -> String {
             return String::new();
         }
         String::from_utf16_lossy(&buf[..copied as usize])
-    }
-}
-
-fn get_process_path(hwnd: HWND) -> String {
-    unsafe {
-        let mut pid = 0u32;
-        GetWindowThreadProcessId(hwnd, Some(&mut pid));
-        if pid == 0 {
-            return String::new();
-        }
-        let handle = match OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
-            Ok(h) => h,
-            Err(_) => return String::new(),
-        };
-        let mut buf = vec![0u16; 1024];
-        let mut len = buf.len() as u32;
-        let ok = QueryFullProcessImageNameW(handle, PROCESS_NAME_FORMAT(0), PWSTR(buf.as_mut_ptr()), &mut len);
-        let _ = windows::Win32::Foundation::CloseHandle(handle);
-        if ok.is_ok() {
-            String::from_utf16_lossy(&buf[..len as usize])
-        } else {
-            String::new()
-        }
     }
 }
