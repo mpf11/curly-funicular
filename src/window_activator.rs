@@ -9,7 +9,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, GetForegroundWindow, GetWindowThreadProcessId,
     IsIconic, SetForegroundWindow, ShowWindow, SwitchToThisWindow,
     SystemParametersInfoW, SPI_GETFOREGROUNDLOCKTIMEOUT, SPI_SETFOREGROUNDLOCKTIMEOUT,
-    SW_RESTORE, SW_SHOW, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
+    SW_RESTORE, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
 };
 
 unsafe fn get_foreground_lock_timeout() -> u32 {
@@ -97,8 +97,6 @@ pub fn activate(hwnd: HWND) {
         }
 
         set_foreground_lock_timeout(prev_lock);
-
-        let _ = ShowWindow(hwnd, SW_SHOW);
 
         // Now that the target is foreground, replay Alt-up so the newly-activated
         // window sees the key-up (and no app sees a stuck Alt modifier on the next

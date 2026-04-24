@@ -50,7 +50,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     DrawIconEx, GetClassLongPtrW, GetCursorPos, GetSystemMetrics, GetWindowLongPtrW,
     KillTimer, LoadCursorW, LoadIconW, MSG, PeekMessageW, PostQuitMessage, RegisterClassExW,
     SendMessageW, SetCursorPos, SetForegroundWindow, SetTimer, SetWindowLongPtrW, SetWindowPos,
-    ShowWindow, TrackPopupMenu, UpdateLayeredWindow, CREATESTRUCTW, DI_NORMAL, GCL_HICON,
+    ShowWindow, TrackPopupMenu, UpdateLayeredWindow, CREATESTRUCTW, DI_NORMAL, GCL_HICON, WS_EX_TOPMOST,
     GWLP_USERDATA, GWL_EXSTYLE, HICON, HWND_TOPMOST, ICON_BIG, ICON_SMALL2, IDC_ARROW,
     IDI_APPLICATION, MF_STRING, PM_NOREMOVE, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
     SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
@@ -1399,7 +1399,7 @@ pub fn create_wheel_window() -> windows::core::Result<HWND> {
         // Pass null for lpCreateParams — state_ptr is set via SetWindowLongPtrW below,
         // after both windows are created and WheelState (which needs ghost_hwnd) is built.
         let hwnd = CreateWindowExW(
-            WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT,
+            WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT | WS_EX_TOPMOST,
             class_pcwstr,
             PCWSTR::null(),
             WS_POPUP,
@@ -1411,7 +1411,7 @@ pub fn create_wheel_window() -> windows::core::Result<HWND> {
         // Ghost overlay window — purely visual, always WS_EX_TRANSPARENT so input passes through.
         // Uses the same wnd_proc; passing no state pointer keeps it in DefWindowProcW territory.
         let ghost_hwnd = CreateWindowExW(
-            WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT,
+            WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT | WS_EX_TOPMOST,
             class_pcwstr,
             PCWSTR::null(),
             WS_POPUP,
