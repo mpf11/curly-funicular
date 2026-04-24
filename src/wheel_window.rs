@@ -7,15 +7,16 @@ use windows::Win32::Foundation::{
 };
 use windows::Win32::Graphics::Direct2D::Common::{
     D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_FIGURE_BEGIN_FILLED,
-    D2D1_FIGURE_END_CLOSED, D2D1_FILL_MODE_ALTERNATE, D2D1_PIXEL_FORMAT, D2D_POINT_2F,
-    D2D_RECT_F, D2D_SIZE_F, D2D_SIZE_U,
+    D2D1_FIGURE_END_CLOSED, D2D1_FILL_MODE_ALTERNATE, D2D1_GRADIENT_STOP, D2D1_PIXEL_FORMAT,
+    D2D_POINT_2F, D2D_RECT_F, D2D_SIZE_F, D2D_SIZE_U,
 };
 use windows::Win32::Graphics::Direct2D::{
     D2D1CreateFactory, ID2D1Bitmap, ID2D1Brush, ID2D1DCRenderTarget, ID2D1Factory,
-    ID2D1RenderTarget, ID2D1StrokeStyle,
+    ID2D1GradientStopCollection, ID2D1RadialGradientBrush, ID2D1RenderTarget, ID2D1StrokeStyle,
     D2D1_ARC_SEGMENT, D2D1_ARC_SIZE_SMALL, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,
-    D2D1_BITMAP_PROPERTIES, D2D1_DRAW_TEXT_OPTIONS_CLIP,
-    D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_FEATURE_LEVEL_DEFAULT,
+    D2D1_BITMAP_PROPERTIES, D2D1_DRAW_TEXT_OPTIONS_CLIP, D2D1_EXTEND_MODE_CLAMP,
+    D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_FEATURE_LEVEL_DEFAULT, D2D1_GAMMA_2_2,
+    D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES,
     D2D1_RENDER_TARGET_PROPERTIES, D2D1_RENDER_TARGET_TYPE_DEFAULT,
     D2D1_RENDER_TARGET_USAGE_NONE, D2D1_ROUNDED_RECT, D2D1_SWEEP_DIRECTION_CLOCKWISE,
     D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE,
@@ -75,7 +76,7 @@ const GWL_EXSTYLE_IDX: i32 = -20;
 const ICON_SIZE: u32 = 32;
 const OVERFLOW_ROW_H: f32 = 46.0;
 const OVERFLOW_PANEL_W: f32 = 220.0;
-const OVERFLOW_GAP: f32 = 16.0;
+const OVERFLOW_GAP: f32 = 32.0;
 const TRAY_ID: u32 = 1;
 
 // Ghost overlay DIB dimensions — large enough for both drag ghost shapes.
@@ -512,7 +513,13 @@ impl WheelState {
         };
 
         // Snapshot slot data up front to avoid borrow conflicts with icon_cache mutations.
-        let active_slot = if self.hover_slot >= 0 { self.hover_slot } else { self.default_slot };
+        let active_slot = if self.overflow_hover_idx >= 0 {
+            -1
+        } else if self.hover_slot >= 0 {
+            self.hover_slot
+        } else {
+            self.default_slot
+        };
         let slots: Vec<Option<SlotSnapshot>> = (0..MAX_SLOTS)
             .map(|i| {
                 self.tracker.slots()[i].as_ref().and_then(|w| {
@@ -583,11 +590,24 @@ impl WheelState {
                 }
             }
 
-            // 4. Selection highlight.
+            // 4. Selection highlight — radial gradient fading outward.
             if active_slot >= 0 {
-                let hl = rt.CreateSolidColorBrush(&rgba(1.0, 1.0, 1.0, 0.16), None)?;
+                let stops = [
+                    D2D1_GRADIENT_STOP { position: 0.0, color: rgba(1.0, 1.0, 1.0, 0.28) },
+                    D2D1_GRADIENT_STOP { position: 1.0, color: rgba(1.0, 1.0, 1.0, 0.0) },
+                ];
+                let stop_coll: ID2D1GradientStopCollection =
+                    rt.CreateGradientStopCollection(&stops, D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP)?;
+                let grad_props = D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES {
+                    center: pt(cx, cy),
+                    gradientOriginOffset: pt(0.0, 0.0),
+                    radiusX: outer_r,
+                    radiusY: outer_r,
+                };
+                let hl: ID2D1RadialGradientBrush =
+                    rt.CreateRadialGradientBrush(&grad_props, None, &stop_coll)?;
                 if let Ok(geo) = build_slice_geo(&self.d2d_factory, cx, cy, inner_r, outer_r, active_slot as usize) {
-                    rt.FillGeometry(&geo, &*hl, None::<&ID2D1Brush>);
+                    rt.FillGeometry(&geo, &hl.cast::<ID2D1Brush>()?, None::<&ID2D1Brush>);
                 }
             }
 
