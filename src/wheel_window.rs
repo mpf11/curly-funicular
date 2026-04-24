@@ -591,7 +591,7 @@ impl WheelState {
 
 
             // 2. Main disc — donut shape (center is transparent).
-            let disc = rt.CreateSolidColorBrush(&rgba(0.055, 0.063, 0.086, 0.87), None)?;
+            let disc = rt.CreateSolidColorBrush(&rgba(0.18, 0.19, 0.22, 0.87), None)?;
             if let Ok(donut) = build_donut_geo(&self.d2d_factory, cx, cy, inner_r, outer_r) {
                 rt.FillGeometry(&donut, &*disc, None::<&ID2D1Brush>);
             }
@@ -600,7 +600,7 @@ impl WheelState {
             let thumb_rim = rt.CreateSolidColorBrush(&rgba(1.0, 1.0, 1.0, 0.27), None)?;
             for i in 0..MAX_SLOTS {
                 let opacity = if slots[i].is_some() { 0.33f32 } else { 0.12f32 };
-                let thumb_bg = rt.CreateSolidColorBrush(&rgba(0.04, 0.051, 0.071, opacity), None)?;
+                let thumb_bg = rt.CreateSolidColorBrush(&rgba(0.13, 0.14, 0.17, opacity), None)?;
                 if let Some(tr) = self.thumb_rects[i] {
                     // Expand placeholder outward by 2px to give visible gap between hard-cornered thumbnail and rounded border.
                     let expanded = frect(tr.left - 2.0, tr.top - 2.0, tr.right + 2.0, tr.bottom + 2.0);
@@ -691,7 +691,7 @@ impl WheelState {
 
             // 8. Overflow panel.
             if let Some(pr) = ov_rect {
-                let bg = rt.CreateSolidColorBrush(&rgba(0.055, 0.063, 0.086, 0.87), None)?;
+                let bg = rt.CreateSolidColorBrush(&rgba(0.18, 0.19, 0.22, 0.87), None)?;
                 let pr_rim = rt.CreateSolidColorBrush(&rgba(1.0, 1.0, 1.0, 0.33), None)?;
                 rt.FillRoundedRectangle(
                     &D2D1_ROUNDED_RECT { rect: pr, radiusX: 12.0, radiusY: 12.0 },
