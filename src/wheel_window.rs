@@ -47,16 +47,17 @@ use windows::Win32::UI::Shell::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
-    DrawIconEx, GetCursorPos, GetSystemMetrics, GetWindowLongPtrW, LoadCursorW, LoadIconW,
-    MSG, PeekMessageW, PostQuitMessage, RegisterClassExW, SendMessageW,
-    SetCursorPos, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, TrackPopupMenu,
-    UpdateLayeredWindow, CREATESTRUCTW, DI_NORMAL, GET_CLASS_LONG_INDEX, GWLP_USERDATA,
-    HICON, HWND_TOPMOST, IDC_ARROW, IDI_APPLICATION, MF_STRING, PM_NOREMOVE,
-    SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
-    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_SHOWNOACTIVATE, TPM_RETURNCMD, TPM_RIGHTBUTTON,
-    ULW_ALPHA, WINDOW_LONG_PTR_INDEX, WNDCLASSEXW, WM_CONTEXTMENU, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    KillTimer, SetTimer, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCDESTROY, WM_RBUTTONUP, WM_TIMER, WS_EX_LAYERED,
-    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP, GetClassLongPtrW,
+    DrawIconEx, GetClassLongPtrW, GetCursorPos, GetSystemMetrics, GetWindowLongPtrW,
+    KillTimer, LoadCursorW, LoadIconW, MSG, PeekMessageW, PostQuitMessage, RegisterClassExW,
+    SendMessageW, SetCursorPos, SetForegroundWindow, SetTimer, SetWindowLongPtrW, SetWindowPos,
+    ShowWindow, TrackPopupMenu, UpdateLayeredWindow, CREATESTRUCTW, DI_NORMAL, GCL_HICON,
+    GWLP_USERDATA, GWL_EXSTYLE, HICON, HWND_TOPMOST, ICON_BIG, ICON_SMALL2, IDC_ARROW,
+    IDI_APPLICATION, MF_STRING, PM_NOREMOVE, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    SW_SHOWNOACTIVATE, TPM_RETURNCMD, TPM_RIGHTBUTTON, ULW_ALPHA, WM_CONTEXTMENU, WM_GETICON,
+    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCDESTROY, WM_RBUTTONUP,
+    WM_TIMER, WNDCLASSEXW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
+    WS_POPUP,
 };
 
 use crate::keyboard_hook::{
@@ -65,13 +66,6 @@ use crate::keyboard_hook::{
 use crate::wheel_geometry::{self, SLOT_COUNT};
 use crate::window_activator;
 use crate::window_tracker::{WindowTracker, MAX_SLOTS};
-
-// Raw constant values for Win32 items that need direct integer form.
-const WM_GETICON_VAL: u32 = 0x007F;
-const ICON_BIG_VAL: usize = 1;
-const ICON_SMALL2_VAL: usize = 2;
-const GCL_HICON_IDX: i32 = -14;
-const GWL_EXSTYLE_IDX: i32 = -20;
 
 const ICON_SIZE: u32 = 32;
 const OVERFLOW_ROW_H: f32 = 46.0;
@@ -163,6 +157,14 @@ pub struct WheelState {
 }
 
 impl WheelState {
+    // ---- Overflow helpers ----
+
+    /// Number of overflow rows that fit on screen (1..=overflow.len()).
+    fn ov_visible_count(&self) -> usize {
+        let max = ((self.virt_h as f32 - 8.0) / OVERFLOW_ROW_H).floor() as usize;
+        self.tracker.overflow().len().min(max.max(1))
+    }
+
     // ---- D2D resource management ----
 
     fn ensure_render_target(&mut self) -> windows::core::Result<()> {
@@ -364,10 +366,10 @@ impl WheelState {
         self.compute_geometry();
 
         unsafe {
-            let ex = GetWindowLongPtrW(hwnd, WINDOW_LONG_PTR_INDEX(GWL_EXSTYLE_IDX));
+            let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
             SetWindowLongPtrW(
                 hwnd,
-                WINDOW_LONG_PTR_INDEX(GWL_EXSTYLE_IDX),
+                GWL_EXSTYLE,
                 ex & !(WS_EX_TRANSPARENT.0 as isize),
             );
             let _ = SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
@@ -408,10 +410,10 @@ impl WheelState {
 
         unsafe {
             let _ = KillTimer(hwnd, 1);
-            let ex = GetWindowLongPtrW(hwnd, WINDOW_LONG_PTR_INDEX(GWL_EXSTYLE_IDX));
+            let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
             SetWindowLongPtrW(
                 hwnd,
-                WINDOW_LONG_PTR_INDEX(GWL_EXSTYLE_IDX),
+                GWL_EXSTYLE,
                 ex | WS_EX_TRANSPARENT.0 as isize,
             );
         }
@@ -557,9 +559,7 @@ impl WheelState {
             .collect();
 
         // Compute how many rows fit and clamp the scroll offset.
-        let ov_max_visible = ((self.virt_h as f32 - 8.0) / OVERFLOW_ROW_H).floor() as usize;
-        let ov_max_visible = ov_max_visible.max(1);
-        let ov_visible = overflow.len().min(ov_max_visible);
+        let ov_visible = self.ov_visible_count();
         let ov_max_scroll = overflow.len().saturating_sub(ov_visible);
         if self.overflow_scroll > ov_max_scroll { self.overflow_scroll = ov_max_scroll; }
         let ov_scroll = self.overflow_scroll;
@@ -835,8 +835,7 @@ impl WheelState {
     pub fn on_mouse_move(&mut self, hwnd: HWND, x: f32, y: f32) {
         if let Some(pr) = self.overflow_panel_rect {
             if x >= pr.left && x < pr.right && y >= pr.top && y < pr.bottom {
-                let ov_max_visible = ((self.virt_h as f32 - 8.0) / OVERFLOW_ROW_H).floor() as usize;
-                let ov_visible = self.tracker.overflow().len().min(ov_max_visible.max(1));
+                let ov_visible = self.ov_visible_count();
                 let vi = ((y - pr.top) / OVERFLOW_ROW_H) as usize;
                 let new_idx = if vi < ov_visible {
                     (self.overflow_scroll + vi) as i32
@@ -869,8 +868,7 @@ impl WheelState {
 
         if let Some(pr) = self.overflow_panel_rect {
             if x >= pr.left && x < pr.right && y >= pr.top && y < pr.bottom {
-                let ov_max_visible = ((self.virt_h as f32 - 8.0) / OVERFLOW_ROW_H).floor() as usize;
-                let ov_visible = self.tracker.overflow().len().min(ov_max_visible.max(1));
+                let ov_visible = self.ov_visible_count();
                 let vi = ((y - pr.top) / OVERFLOW_ROW_H) as usize;
                 let actual_idx = (self.overflow_scroll + vi) as i32;
                 if vi < ov_visible && actual_idx < self.tracker.overflow().len() as i32 {
@@ -941,8 +939,7 @@ impl WheelState {
                     }
                 } else if let Some(pr) = self.overflow_panel_rect {
                     if x >= pr.left && x < pr.right && y >= pr.top && y < pr.bottom {
-                        let ov_max_visible = ((self.virt_h as f32 - 8.0) / OVERFLOW_ROW_H).floor() as usize;
-                        let ov_visible = self.tracker.overflow().len().min(ov_max_visible.max(1));
+                        let ov_visible = self.ov_visible_count();
                         let vi = ((y - pr.top) / OVERFLOW_ROW_H) as usize;
                         let drop_ov = self.overflow_scroll + vi;
                         if vi < ov_visible && drop_ov < self.tracker.overflow().len() {
@@ -970,8 +967,7 @@ impl WheelState {
                     self.re_register_thumbnail(hwnd, drop);
                 } else if let Some(pr) = self.overflow_panel_rect {
                     if x >= pr.left && x < pr.right && y >= pr.top && y < pr.bottom {
-                        let ov_max_visible = ((self.virt_h as f32 - 8.0) / OVERFLOW_ROW_H).floor() as usize;
-                        let ov_visible = self.tracker.overflow().len().min(ov_max_visible.max(1));
+                        let ov_visible = self.ov_visible_count();
                         let vi = ((y - pr.top) / OVERFLOW_ROW_H) as usize;
                         let drop_ov = self.overflow_scroll + vi;
                         if vi < ov_visible && drop_ov != start_ov && drop_ov < self.tracker.overflow().len() {
@@ -999,8 +995,7 @@ impl WheelState {
             .unwrap_or(false);
         if !in_panel { return; }
         let count = self.tracker.overflow().len();
-        let ov_max_visible = ((self.virt_h as f32 - 8.0) / OVERFLOW_ROW_H).floor() as usize;
-        let ov_visible = count.min(ov_max_visible.max(1));
+        let ov_visible = self.ov_visible_count();
         if count <= ov_visible { return; }
         let max_scroll = (count - ov_visible) as i32;
         // Positive delta = wheel up = show earlier items = decrease offset.
@@ -1257,11 +1252,11 @@ fn blit_icon(buf: &mut [u8], stride: usize, pixels: &[u8], src_size: usize, dst_
 // ---- Icon loading helpers ----
 
 unsafe fn get_window_icon(hwnd: HWND) -> Option<HICON> {
-    let r = SendMessageW(hwnd, WM_GETICON_VAL, WPARAM(ICON_BIG_VAL), LPARAM(0));
+    let r = SendMessageW(hwnd, WM_GETICON, WPARAM(ICON_BIG as usize), LPARAM(0));
     if r.0 != 0 { return Some(HICON(r.0 as *mut c_void)); }
-    let r = SendMessageW(hwnd, WM_GETICON_VAL, WPARAM(ICON_SMALL2_VAL), LPARAM(0));
+    let r = SendMessageW(hwnd, WM_GETICON, WPARAM(ICON_SMALL2 as usize), LPARAM(0));
     if r.0 != 0 { return Some(HICON(r.0 as *mut c_void)); }
-    let cls = GetClassLongPtrW(hwnd, GET_CLASS_LONG_INDEX(GCL_HICON_IDX));
+    let cls = GetClassLongPtrW(hwnd, GCL_HICON);
     if cls != 0 { return Some(HICON(cls as *mut c_void)); }
     None
 }
@@ -1330,12 +1325,6 @@ unsafe fn hicon_to_d2d_bitmap(rt: &ID2D1RenderTarget, hicon: HICON) -> (Option<I
 
 // ---- Window class registration and creation ----
 
-static CLASS_NAME_W: &[u16] = &[
-    b'W' as u16, b'h' as u16, b'e' as u16, b'e' as u16, b'l' as u16,
-    b'S' as u16, b'w' as u16, b'i' as u16, b't' as u16, b'c' as u16,
-    b'h' as u16, b'e' as u16, b'r' as u16, 0u16,
-];
-
 /// Create and show the overlay wheel window.
 /// Ownership of WheelState is transferred into GWLP_USERDATA and freed in WM_NCDESTROY.
 pub fn create_wheel_window() -> windows::core::Result<HWND> {
@@ -1395,7 +1384,7 @@ pub fn create_wheel_window() -> windows::core::Result<HWND> {
         SelectObject(ghost_mem_dc, HGDIOBJ(ghost_dib.0));
 
         // Register window class and create main wheel window.
-        let class_pcwstr = PCWSTR(CLASS_NAME_W.as_ptr());
+        let class_pcwstr = w!("WheelSwitcher");
         let wcex = WNDCLASSEXW {
             cbSize: size_of::<WNDCLASSEXW>() as u32,
             lpfnWndProc: Some(wnd_proc),

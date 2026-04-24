@@ -12,7 +12,6 @@ pub const MAX_SLOTS: usize = 8;
 pub struct TrackedWindow {
     pub hwnd: HWND,
     pub title: String,
-    pub slot: usize,
 }
 
 pub struct WindowTracker {
@@ -78,7 +77,7 @@ impl WindowTracker {
             match self.find_free_slot() {
                 Some(slot) => {
                     self.handle_to_slot.insert(lw.hwnd.0 as usize, slot);
-                    self.slots[slot] = Some(TrackedWindow { slot, ..lw });
+                    self.slots[slot] = Some(lw);
                 }
                 None => {
                     self.overflow.push(lw);
@@ -97,12 +96,10 @@ impl WindowTracker {
             return;
         }
         self.slots.swap(a, b);
-        if let Some(ref mut w) = self.slots[a] {
-            w.slot = a;
+        if let Some(ref w) = self.slots[a] {
             self.handle_to_slot.insert(w.hwnd.0 as usize, a);
         }
-        if let Some(ref mut w) = self.slots[b] {
-            w.slot = b;
+        if let Some(ref w) = self.slots[b] {
             self.handle_to_slot.insert(w.hwnd.0 as usize, b);
         }
     }
@@ -112,13 +109,11 @@ impl WindowTracker {
         if slot >= MAX_SLOTS || overflow_idx >= self.overflow.len() {
             return;
         }
-        let mut ov_win = self.overflow.remove(overflow_idx);
-        ov_win.slot = slot;
+        let ov_win = self.overflow.remove(overflow_idx);
         self.handle_to_slot.insert(ov_win.hwnd.0 as usize, slot);
 
-        if let Some(mut evicted) = self.slots[slot].take() {
+        if let Some(evicted) = self.slots[slot].take() {
             self.handle_to_slot.remove(&(evicted.hwnd.0 as usize));
-            evicted.slot = usize::MAX;
             self.overflow.insert(overflow_idx, evicted);
         }
         self.slots[slot] = Some(ov_win);
@@ -152,7 +147,7 @@ impl WindowTracker {
             if title.is_empty() {
                 return BOOL(1);
             }
-            state.result.push(TrackedWindow { hwnd, title, slot: 0 });
+            state.result.push(TrackedWindow { hwnd, title });
             BOOL(1)
         }
 

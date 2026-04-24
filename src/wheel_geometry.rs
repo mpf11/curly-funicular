@@ -1,4 +1,4 @@
-/// Pure math for the wheel layout — no Win32 dependencies, making it unit-testable.
+//! Pure math for the wheel layout — no Win32 dependencies, making it unit-testable.
 
 pub const SLOT_COUNT: usize = 8;
 pub const SLICE_SPAN_DEG: f64 = 360.0 / SLOT_COUNT as f64;
