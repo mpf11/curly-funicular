@@ -18,7 +18,7 @@ use windows::Win32::Graphics::Direct2D::{
     D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_FEATURE_LEVEL_DEFAULT, D2D1_GAMMA_2_2,
     D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES,
     D2D1_RENDER_TARGET_PROPERTIES, D2D1_RENDER_TARGET_TYPE_DEFAULT,
-    D2D1_RENDER_TARGET_USAGE_NONE, D2D1_ROUNDED_RECT, D2D1_SWEEP_DIRECTION_CLOCKWISE,
+    D2D1_ANTIALIAS_MODE_ALIASED, D2D1_RENDER_TARGET_USAGE_NONE, D2D1_ROUNDED_RECT, D2D1_SWEEP_DIRECTION_CLOCKWISE,
     D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE,
 };
 use windows::Win32::Graphics::DirectWrite::{
@@ -55,7 +55,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
     SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_SHOWNOACTIVATE, TPM_RETURNCMD, TPM_RIGHTBUTTON,
     ULW_ALPHA, WINDOW_LONG_PTR_INDEX, WNDCLASSEXW, WM_CONTEXTMENU, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    KillTimer, SetTimer, WM_MOUSEMOVE, WM_NCDESTROY, WM_RBUTTONUP, WM_TIMER, WS_EX_LAYERED,
+    KillTimer, SetTimer, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCDESTROY, WM_RBUTTONUP, WM_TIMER, WS_EX_LAYERED,
     WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP, GetClassLongPtrW,
 };
 
@@ -77,6 +77,7 @@ const ICON_SIZE: u32 = 32;
 const OVERFLOW_ROW_H: f32 = 46.0;
 const OVERFLOW_PANEL_W: f32 = 220.0;
 const OVERFLOW_GAP: f32 = 32.0;
+const OVERFLOW_SCROLLBAR_W: f32 = 5.0;
 const TRAY_ID: u32 = 1;
 
 // Ghost overlay DIB dimensions — large enough for both drag ghost shapes.
@@ -158,6 +159,7 @@ pub struct WheelState {
 
     overflow_panel_rect: Option<D2D_RECT_F>,
     overflow_hover_idx: i32,
+    overflow_scroll: usize,
 }
 
 impl WheelState {
@@ -401,6 +403,7 @@ impl WheelState {
         self.drag_start_slot = -1;
         self.drag_start_overflow = -1;
         self.overflow_hover_idx = -1;
+        self.overflow_scroll = 0;
         self.overflow_panel_rect = None;
 
         unsafe {
@@ -436,10 +439,18 @@ impl WheelState {
         } else if self.default_slot >= 0 {
             self.default_slot as usize
         } else {
+            // No selection. dismiss() won't activate, so the hook-swallowed Alt-up
+            // must be replayed here or the system will believe Alt is still held.
             self.dismiss(hwnd, None);
+            window_activator::replay_alt_up();
             return;
         };
         let target = self.tracker.slots()[slot].as_ref().map(|w| w.hwnd);
+        if target.is_none() {
+            self.dismiss(hwnd, None);
+            window_activator::replay_alt_up();
+            return;
+        }
         self.dismiss(hwnd, target);
     }
 
@@ -545,11 +556,20 @@ impl WheelState {
             .map(|(h, _)| unsafe { self.load_icon_cached(&rt, *h) })
             .collect();
 
-        // Compute overflow panel rect before D2D calls.
+        // Compute how many rows fit and clamp the scroll offset.
+        let ov_max_visible = ((self.virt_h as f32 - 8.0) / OVERFLOW_ROW_H).floor() as usize;
+        let ov_max_visible = ov_max_visible.max(1);
+        let ov_visible = overflow.len().min(ov_max_visible);
+        let ov_max_scroll = overflow.len().saturating_sub(ov_visible);
+        if self.overflow_scroll > ov_max_scroll { self.overflow_scroll = ov_max_scroll; }
+        let ov_scroll = self.overflow_scroll;
+        let ov_needs_scrollbar = overflow.len() > ov_visible;
+
+        // Compute overflow panel rect before D2D calls (height capped to visible rows).
         let ov_rect = if overflow.is_empty() {
             None
         } else {
-            let total_h = overflow.len() as f32 * OVERFLOW_ROW_H;
+            let total_h = ov_visible as f32 * OVERFLOW_ROW_H;
             let px = self.cx - self.outer_r - OVERFLOW_GAP - OVERFLOW_PANEL_W;
             let py = (self.cy - total_h / 2.0)
                 .max(4.0)
@@ -682,21 +702,24 @@ impl WheelState {
                     &*pr_rim, 1.0, None::<&ID2D1StrokeStyle>,
                 );
 
+                rt.PushAxisAlignedClip(&pr, D2D1_ANTIALIAS_MODE_ALIASED);
                 let row_hl = rt.CreateSolidColorBrush(&rgba(1.0, 1.0, 1.0, 0.16), None)?;
-                let count = overflow.len();
-                for (i, (_, title)) in overflow.iter().enumerate() {
+                let text_right_margin = if ov_needs_scrollbar { OVERFLOW_SCROLLBAR_W + 6.0 } else { 8.0 };
+                for vi in 0..ov_visible {
+                    let actual_idx = ov_scroll + vi;
+                    let (_, title) = &overflow[actual_idx];
                     let row = frect(
-                        pr.left, pr.top + i as f32 * OVERFLOW_ROW_H,
-                        pr.right, pr.top + (i + 1) as f32 * OVERFLOW_ROW_H,
+                        pr.left, pr.top + vi as f32 * OVERFLOW_ROW_H,
+                        pr.right, pr.top + (vi + 1) as f32 * OVERFLOW_ROW_H,
                     );
-                    if hover_ov == i as i32 {
-                        let cr = if count == 1 || i == 0 || i == count - 1 { 10.0f32 } else { 2.0 };
+                    if hover_ov == actual_idx as i32 {
+                        let cr = if ov_visible == 1 || vi == 0 || vi == ov_visible - 1 { 10.0f32 } else { 2.0 };
                         rt.FillRoundedRectangle(
                             &D2D1_ROUNDED_RECT { rect: row, radiusX: cr, radiusY: cr },
                             &*row_hl,
                         );
                     }
-                    if let Some(bmp) = &overflow_icons[i] {
+                    if let Some(bmp) = &overflow_icons[actual_idx] {
                         let iy2 = (row.top + row.bottom) / 2.0;
                         let dest = frect(pr.left + 8.0, iy2 - 14.0, pr.left + 36.0, iy2 + 14.0);
                         rt.DrawBitmap(
@@ -709,7 +732,7 @@ impl WheelState {
                     }
                     if let Some(ref tf_fmt) = tf_sm {
                         let text_x = pr.left + 42.0;
-                        let text_w = pr.right - 8.0 - text_x;
+                        let text_w = pr.right - text_right_margin - text_x;
                         let wide: Vec<u16> = title.encode_utf16().collect();
                         if let Ok(layout) = dwrite.CreateTextLayout(&wide, tf_fmt, text_w, OVERFLOW_ROW_H) {
                             let trimming = DWRITE_TRIMMING {
@@ -725,6 +748,36 @@ impl WheelState {
                             );
                         }
                     }
+                }
+                rt.PopAxisAlignedClip();
+
+                if ov_needs_scrollbar {
+                    let track_top = pr.top + 4.0;
+                    let track_bottom = pr.bottom - 4.0;
+                    let track_h = track_bottom - track_top;
+                    let total_count = overflow.len();
+                    let thumb_frac = ov_visible as f32 / total_count as f32;
+                    let thumb_h = (thumb_frac * track_h).max(20.0);
+                    let max_scroll_f = (total_count - ov_visible) as f32;
+                    let thumb_top = track_top + (ov_scroll as f32 / max_scroll_f) * (track_h - thumb_h);
+                    let sb_right = pr.right - 3.0;
+                    let sb_left = sb_right - OVERFLOW_SCROLLBAR_W;
+                    let track_brush = rt.CreateSolidColorBrush(&rgba(1.0, 1.0, 1.0, 0.1), None)?;
+                    let thumb_brush = rt.CreateSolidColorBrush(&rgba(1.0, 1.0, 1.0, 0.4), None)?;
+                    rt.FillRoundedRectangle(
+                        &D2D1_ROUNDED_RECT {
+                            rect: frect(sb_left, track_top, sb_right, track_bottom),
+                            radiusX: OVERFLOW_SCROLLBAR_W / 2.0, radiusY: OVERFLOW_SCROLLBAR_W / 2.0,
+                        },
+                        &*track_brush,
+                    );
+                    rt.FillRoundedRectangle(
+                        &D2D1_ROUNDED_RECT {
+                            rect: frect(sb_left, thumb_top, sb_right, thumb_top + thumb_h),
+                            radiusX: OVERFLOW_SCROLLBAR_W / 2.0, radiusY: OVERFLOW_SCROLLBAR_W / 2.0,
+                        },
+                        &*thumb_brush,
+                    );
                 }
             }
 
@@ -782,9 +835,14 @@ impl WheelState {
     pub fn on_mouse_move(&mut self, hwnd: HWND, x: f32, y: f32) {
         if let Some(pr) = self.overflow_panel_rect {
             if x >= pr.left && x < pr.right && y >= pr.top && y < pr.bottom {
-                let idx = ((y - pr.top) / OVERFLOW_ROW_H) as i32;
-                let count = self.tracker.overflow().len() as i32;
-                let new_idx = if idx >= 0 && idx < count { idx } else { -1 };
+                let ov_max_visible = ((self.virt_h as f32 - 8.0) / OVERFLOW_ROW_H).floor() as usize;
+                let ov_visible = self.tracker.overflow().len().min(ov_max_visible.max(1));
+                let vi = ((y - pr.top) / OVERFLOW_ROW_H) as usize;
+                let new_idx = if vi < ov_visible {
+                    (self.overflow_scroll + vi) as i32
+                } else {
+                    -1
+                };
                 if new_idx != self.overflow_hover_idx {
                     self.overflow_hover_idx = new_idx;
                     self.hover_slot = -1;
@@ -811,9 +869,12 @@ impl WheelState {
 
         if let Some(pr) = self.overflow_panel_rect {
             if x >= pr.left && x < pr.right && y >= pr.top && y < pr.bottom {
-                let idx = ((y - pr.top) / OVERFLOW_ROW_H) as i32;
-                if idx >= 0 && idx < self.tracker.overflow().len() as i32 {
-                    self.drag_start_overflow = idx;
+                let ov_max_visible = ((self.virt_h as f32 - 8.0) / OVERFLOW_ROW_H).floor() as usize;
+                let ov_visible = self.tracker.overflow().len().min(ov_max_visible.max(1));
+                let vi = ((y - pr.top) / OVERFLOW_ROW_H) as usize;
+                let actual_idx = (self.overflow_scroll + vi) as i32;
+                if vi < ov_visible && actual_idx < self.tracker.overflow().len() as i32 {
+                    self.drag_start_overflow = actual_idx;
                     self.drag_start_slot = -1;
                     self.drag_start_x = x;
                     self.drag_start_y = y;
@@ -880,8 +941,11 @@ impl WheelState {
                     }
                 } else if let Some(pr) = self.overflow_panel_rect {
                     if x >= pr.left && x < pr.right && y >= pr.top && y < pr.bottom {
-                        let drop_ov = ((y - pr.top) / OVERFLOW_ROW_H) as usize;
-                        if drop_ov < self.tracker.overflow().len() {
+                        let ov_max_visible = ((self.virt_h as f32 - 8.0) / OVERFLOW_ROW_H).floor() as usize;
+                        let ov_visible = self.tracker.overflow().len().min(ov_max_visible.max(1));
+                        let vi = ((y - pr.top) / OVERFLOW_ROW_H) as usize;
+                        let drop_ov = self.overflow_scroll + vi;
+                        if vi < ov_visible && drop_ov < self.tracker.overflow().len() {
                             self.tracker.swap_slot_with_overflow(start, drop_ov);
                             self.re_register_thumbnail(hwnd, start);
                         }
@@ -906,8 +970,11 @@ impl WheelState {
                     self.re_register_thumbnail(hwnd, drop);
                 } else if let Some(pr) = self.overflow_panel_rect {
                     if x >= pr.left && x < pr.right && y >= pr.top && y < pr.bottom {
-                        let drop_ov = ((y - pr.top) / OVERFLOW_ROW_H) as usize;
-                        if drop_ov != start_ov && drop_ov < self.tracker.overflow().len() {
+                        let ov_max_visible = ((self.virt_h as f32 - 8.0) / OVERFLOW_ROW_H).floor() as usize;
+                        let ov_visible = self.tracker.overflow().len().min(ov_max_visible.max(1));
+                        let vi = ((y - pr.top) / OVERFLOW_ROW_H) as usize;
+                        let drop_ov = self.overflow_scroll + vi;
+                        if vi < ov_visible && drop_ov != start_ov && drop_ov < self.tracker.overflow().len() {
                             self.tracker.swap_overflow(start_ov, drop_ov);
                         }
                     }
@@ -924,6 +991,22 @@ impl WheelState {
             self.clear_ghost();
             let _ = self.draw_frame(hwnd);
         }
+    }
+
+    pub fn on_scroll(&mut self, hwnd: HWND, x: f32, y: f32, delta: i32) {
+        let in_panel = self.overflow_panel_rect
+            .map(|pr| x >= pr.left && x < pr.right && y >= pr.top && y < pr.bottom)
+            .unwrap_or(false);
+        if !in_panel { return; }
+        let count = self.tracker.overflow().len();
+        let ov_max_visible = ((self.virt_h as f32 - 8.0) / OVERFLOW_ROW_H).floor() as usize;
+        let ov_visible = count.min(ov_max_visible.max(1));
+        if count <= ov_visible { return; }
+        let max_scroll = (count - ov_visible) as i32;
+        // Positive delta = wheel up = show earlier items = decrease offset.
+        let new_scroll = self.overflow_scroll as i32 + if delta > 0 { -3 } else { 3 };
+        self.overflow_scroll = new_scroll.clamp(0, max_scroll) as usize;
+        let _ = self.draw_frame(hwnd);
     }
 
     // ---- Pixel-level drag ghost on separate overlay window (above DWM thumbnails) ----
@@ -1377,6 +1460,7 @@ pub fn create_wheel_window() -> windows::core::Result<HWND> {
             icon_pixel_cache: HashMap::new(),
             overflow_panel_rect: None,
             overflow_hover_idx: -1,
+            overflow_scroll: 0,
         });
         // Transfer ownership to raw pointer. Freed in WM_NCDESTROY.
         let state_ptr = Box::into_raw(state);
@@ -1522,6 +1606,16 @@ unsafe extern "system" fn wnd_proc(
                 let x = (lparam.0 & 0xFFFF) as i16 as f32;
                 let y = ((lparam.0 >> 16) & 0xFFFF) as i16 as f32;
                 state.on_mouse_up(hwnd, x, y);
+            }
+            LRESULT(0)
+        }
+        WM_MOUSEWHEEL => {
+            if state.wheel_open {
+                // lparam for WM_MOUSEWHEEL contains screen coordinates.
+                let x = (lparam.0 & 0xFFFF) as i16 as f32 - state.virt_x as f32;
+                let y = ((lparam.0 >> 16) & 0xFFFF) as i16 as f32 - state.virt_y as f32;
+                let delta = ((wparam.0 >> 16) as i16) as i32;
+                state.on_scroll(hwnd, x, y, delta);
             }
             LRESULT(0)
         }

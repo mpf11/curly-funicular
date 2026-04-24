@@ -6,9 +6,9 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetKeyState, VIRTUAL_KEY, VK_ESCAPE, VK_LMENU, VK_MENU, VK_RMENU, VK_SHIFT, VK_TAB,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, PostMessageW, SetWindowsHookExW, UnhookWindowsHookEx, HHOOK,
-    KBDLLHOOKSTRUCT, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
-    LLKHF_ALTDOWN, LLKHF_INJECTED,
+    AllowSetForegroundWindow, CallNextHookEx, PostMessageW, SetWindowsHookExW,
+    UnhookWindowsHookEx, ASFW_ANY, HHOOK, KBDLLHOOKSTRUCT, WH_KEYBOARD_LL,
+    WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP, LLKHF_ALTDOWN, LLKHF_INJECTED,
 };
 
 // Custom window messages posted to the wheel window.
@@ -93,12 +93,25 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
         }
     }
 
-    // Alt key up while wheel is open → commit the selection.
-    // Don't swallow the up event so the foreground app sees Alt released cleanly.
-    if wheel_active && is_key_up {
+    // Alt key up while wheel is open → commit the selection and swallow.
+    //
+    // Swallowing (returning LRESULT(1)) is critical: if Alt-up reaches the source app
+    // via CallNextHookEx, that counts as "user input directed at the source app" from
+    // the system's perspective. That transfers the "last input event" token to the
+    // source app's thread AND arms Windows' 200ms foreground-lock timer. Our subsequent
+    // SetForegroundWindow call on a cross-process target then fails (orange taskbar
+    // flash). It also prevents menu-bar activation in apps like Sublime Text that open
+    // their menu on bare Alt press/release.
+    //
+    // The activator injects a synthetic Alt-up after SetForegroundWindow succeeds, so
+    // the system's keyboard state still reflects Alt-as-released and the newly
+    // activated window sees the key-up message it expects.
+    if wheel_active && is_key_up && !injected {
         match VIRTUAL_KEY(data.vkCode as u16) {
             VK_MENU | VK_LMENU | VK_RMENU => {
+                let _ = AllowSetForegroundWindow(ASFW_ANY);
                 let _ = PostMessageW(hwnd, MSG_ALT_RELEASED, WPARAM(0), LPARAM(0));
+                return LRESULT(1);
             }
             _ => {}
         }
