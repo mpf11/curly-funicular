@@ -1,0 +1,55 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute version (strip leading v)
+        id: v
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo build --release
+        run: cargo build --release --target x86_64-pc-windows-msvc
+
+      - name: Create self_update zip
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          Compress-Archive `
+            -Path target\x86_64-pc-windows-msvc\release\wheel_switcher.exe `
+            -DestinationPath dist\wheel_switcher-x86_64-pc-windows-msvc.zip
+
+      - name: Install Inno Setup
+        run: choco install -y innosetup --no-progress
+
+      - name: Build installer
+        env:
+          APP_VERSION: ${{ steps.v.outputs.version }}
+        run: iscc installer\wheel_switcher.iss
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          gh release create ${{ github.ref_name }} `
+            installer\dist\wheel_switcher-setup.exe `
+            dist\wheel_switcher-x86_64-pc-windows-msvc.zip `
+            --title ${{ github.ref_name }} `
+            --generate-notes

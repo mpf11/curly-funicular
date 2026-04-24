@@ -1,6 +1,7 @@
 #![windows_subsystem = "windows"]
 
 mod keyboard_hook;
+mod updater;
 mod wheel_geometry;
 mod wheel_window;
 mod window_activator;
@@ -35,6 +36,8 @@ fn main() -> windows::core::Result<()> {
         // Point the keyboard hook at our window and install it.
         keyboard_hook::WHEEL_HWND.store(hwnd.0 as isize, Ordering::Relaxed);
         keyboard_hook::install()?;
+
+        updater::spawn_background_check();
 
         // Standard Win32 message loop.
         let mut msg = MSG::default();

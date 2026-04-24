@@ -11,6 +11,17 @@ A Windows Alt+Tab replacement built in Rust. Instead of a flat taskbar strip, it
 - **Keyboard navigation** — Tab / Shift+Tab to cycle through slots; Esc to cancel; releasing Alt commits the selection
 - **Tray icon** — right-click to exit
 
+## Installation
+
+Grab the latest `wheel_switcher-setup.exe` from [Releases](https://github.com/mpf11/wheel_switcher/releases/latest) and run it.
+
+- Installs to `%ProgramFiles%\WheelSwitcher` (installer requires admin).
+- Creates a shortcut in your Startup folder so it launches on login.
+- The app runs elevated — Windows shows a UAC prompt at login. This is required so the low-level keyboard hook can intercept Alt+Tab when an elevated window (Task Manager, regedit, etc.) is in focus.
+- Binaries are unsigned; expect a SmartScreen warning on first install ("More info" → "Run anyway").
+
+The app checks GitHub for a new release once per day in the background and silently replaces its own binary. The updated version takes effect on the next launch.
+
 ## Building and Running
 
 ```
@@ -18,6 +29,12 @@ cargo build --release
 ```
 
 The binary is `target/release/wheel_switcher.exe`. Run it once; it enforces a single-instance guard via a named mutex. Once running, press Alt+Tab as normal.
+
+## Releasing
+
+1. Bump `version` in `Cargo.toml`.
+2. Commit, tag `vX.Y.Z`, and `git push --tags`.
+3. CI (`.github/workflows/release.yml`) builds `wheel_switcher-setup.exe` and `wheel_switcher-x86_64-pc-windows-msvc.zip`, attaches both to a GitHub release. The zip is what the in-app updater consumes.
 
 ## How It Works
 
